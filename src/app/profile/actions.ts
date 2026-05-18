@@ -78,6 +78,7 @@ export async function changePassword(
 
   const user = await prisma.users.findUnique({ where: { user_id: userId }, select: { password: true } });
   if (!user) return { ok: false, error: "Account not found." };
+  if (!user.password) return { ok: false, error: "Account has no password set. Contact admin." };
 
   const valid = await bcrypt.compare(current, user.password);
   if (!valid) return { ok: false, error: "Current password is incorrect." };
