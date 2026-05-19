@@ -10,6 +10,8 @@ import {
   getCombinedUpcomingExits,
   getCombinedUpcomingHires,
   getOwnInductionView,
+  listAllSubstepTemplates,
+  listDepartments,
 } from "@/app/induction/queries";
 import {
   shouldRunSync,
@@ -71,10 +73,12 @@ export default async function OnboardingDashboardPage({ searchParams }: PageProp
   // week before through the week after start_date (still onboarding either
   // way). Offboarding only shows future leavers (employees who already left
   // can't be inducted) within the next 2 weeks so they have time to settle.
-  const [hiresAll, exitsAll, ownInduction] = await Promise.all([
+  const [hiresAll, exitsAll, ownInduction, substepTemplates, departments] = await Promise.all([
     fetchHires ? getCombinedUpcomingHires(7, 7) : Promise.resolve([]),
     fetchExits ? getCombinedUpcomingExits(14, 0) : Promise.resolve([]),
     actor ? getOwnInductionView(actor.user_id) : Promise.resolve(null),
+    listAllSubstepTemplates(),
+    listDepartments(),
   ]);
 
   const hires = hiresAll.filter((h) => Math.abs(h.daysUntilStart) <= 7);
@@ -97,6 +101,8 @@ export default async function OnboardingDashboardPage({ searchParams }: PageProp
             view={view}
             ownInduction={ownInduction}
             isManager={canManage}
+            substepTemplates={substepTemplates}
+            departments={departments}
           />
         </div>
       </div>

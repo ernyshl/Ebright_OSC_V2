@@ -6,6 +6,9 @@ import { authOptions } from "@/lib/nextauth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/app/components/AppShell";
 import { BulkAddToQueueButton } from "@/app/induction/components/BulkAddToQueueButton";
+import HiresTableBody, {
+  type HireRow,
+} from "@/app/induction/components/HiresTableBody";
 import { HRMSSidebar } from "@/app/induction/components/HRMSSidebar";
 import { canManageInductions } from "@/app/induction/roles";
 import { getCombinedUpcomingHires } from "@/app/induction/queries";
@@ -80,40 +83,18 @@ export default async function OnboardingDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {hires.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">
-                        No upcoming hires in the next 6 months.
-                      </td>
-                    </tr>
-                  ) : (
-                    hires.map((h, i) => (
-                      <tr
-                        key={h.key}
-                        className={h.isWithin7Days ? "bg-emerald-50" : "bg-white"}
-                      >
-                        <td className="px-4 py-3 text-slate-500 tabular-nums">{i + 1}</td>
-                        <td className="px-4 py-3 font-medium text-slate-900">
-                          {h.isWithin7Days && (
-                            <span className="text-emerald-600 mr-1.5" aria-hidden="true">●</span>
-                          )}
-                          {h.fullName}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">{h.position ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-700">{h.departmentName ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-700">{h.startDate}</td>
-                        <td className="px-4 py-3 text-xs">
-                          <span className={
-                            h.source === "local"
-                              ? "rounded bg-slate-100 px-2 py-0.5 text-slate-700"
-                              : "rounded bg-blue-100 px-2 py-0.5 text-blue-700"
-                          }>
-                            {h.source === "local" ? "hrfs" : "ebrightleads"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  <HiresTableBody
+                    rows={hires.map<HireRow>((h) => ({
+                      key: h.key,
+                      source: h.source,
+                      userId: h.userId,
+                      fullName: h.fullName,
+                      position: h.position,
+                      departmentName: h.departmentName,
+                      startDate: h.startDate,
+                      isWithin7Days: h.isWithin7Days,
+                    }))}
+                  />
                 </tbody>
               </table>
             </div>

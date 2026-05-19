@@ -19,16 +19,70 @@ import {
 import type {
   CombinedExitRow,
   CombinedHireRow,
+  DepartmentOption,
   InductionStepView,
   InductionView,
+  SubstepTemplateView,
 } from "@/app/induction/queries";
+
+// Inline copy of groupSubstepsByParent — queries.ts is server-only so its
+// runtime helpers can't be imported into this client component.
+// Filters by templateKey AND departmentId (null = global rows visible to all).
+function groupSubstepsByParent(
+  rows: SubstepTemplateView[],
+  templateKey: string,
+  departmentId: number | null,
+): Record<number, SubstepTemplateView[]> {
+  const out: Record<number, SubstepTemplateView[]> = {};
+  for (const r of rows) {
+    if (r.templateKey !== templateKey) continue;
+    // Show rows that match the selected department OR rows with no department
+    // (legacy globals). When no department is selected, only show globals.
+    if (r.departmentId !== null && r.departmentId !== departmentId) continue;
+    if (!out[r.parentStepNumber]) out[r.parentStepNumber] = [];
+    out[r.parentStepNumber].push(r);
+  }
+  return out;
+}
 import {
   OFFBOARDING_WORKFLOW,
   WORKFLOW_TEMPLATES,
+  workflowTemplateLabel,
   type WorkflowStepTemplate,
 } from "@/app/induction/templates";
+
+// Onboarding workflow paths (mirrors the 4 employee-type templates in
+// templates.ts). Drives the tab switcher on the manager preview so HR can
+// flip between the 4 reference workflows without leaving the page.
+const EMPLOYEE_TYPE_TEMPLATES: ReadonlyArray<{
+  key: string;
+  short: string;
+  location: string;
+  accent: string; // tailwind gradient
+}> = [
+  { key: "Standard",            short: "Regular Intern",      location: "HQ",                       accent: "from-sky-500 to-blue-600" },
+  { key: "ProtegeInternBranch", short: "Protege Intern",      location: "Assigned Branch",          accent: "from-violet-500 to-indigo-600" },
+  { key: "CoachPartTimer",      short: "Coach (Part-timer)",  location: "Branch + 3-week training", accent: "from-amber-500 to-orange-600" },
+  { key: "FullTimer",           short: "Full-timer",          location: "HQ or Branch",             accent: "from-emerald-500 to-teal-600" },
+];
 import { WorkflowDiagram } from "./WorkflowDiagram";
 import { TrainingChecklist } from "./TrainingChecklist";
+import OnboardingWorkflow from "./OnboardingWorkflow";
+
+// Synthetic "today" used as the start date when a manager previews the
+// onboarding workflow without an active induction of their own. Lets the
+// swimlane component bucket steps by `dueDate - startDate` consistently.
+const PREVIEW_START_DATE = (() => {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString();
+})();
+
+function previewDueDate(daysFromStart: number): string {
+  const d = new Date(PREVIEW_START_DATE);
+  d.setUTCDate(d.getUTCDate() + daysFromStart);
+  return d.toISOString();
+}
 
 interface OnboardingDashboardProps {
   hires: CombinedHireRow[];
@@ -36,6 +90,8 @@ interface OnboardingDashboardProps {
   view?: "onboarding" | "offboarding" | "both";
   ownInduction: InductionView | null;
   isManager: boolean;
+  substepTemplates: SubstepTemplateView[];
+  departments: DepartmentOption[];
 }
 
 function templateToPreviewSteps(
@@ -48,9 +104,13 @@ function templateToPreviewSteps(
     description: t.description,
     responsibleName: null,
     responsibleEmail: null,
-    dueDate: "",
+    // Synthetic dueDate so timeline-based UIs (e.g. OnboardingWorkflow
+    // swimlanes) can still bucket preview-only steps.
+    dueDate: previewDueDate(t.daysFromStart),
     status: "Pending",
     completedAt: null,
+    evidenceFileId: null,
+    evidenceUploadedAt: null,
   }));
 }
 
@@ -66,6 +126,8 @@ export default function OnboardingDashboard({
   view = "both",
   ownInduction,
   isManager,
+  substepTemplates,
+  departments,
 }: OnboardingDashboardProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -393,6 +455,8 @@ export default function OnboardingDashboard({
               templateSteps={WORKFLOW_TEMPLATES.Standard}
               ownInduction={ownInduction}
               isManager={isManager}
+              substepTemplates={substepTemplates}
+              departments={departments}
             />
           )}
           {showOffboarding && (
@@ -401,6 +465,8 @@ export default function OnboardingDashboard({
               templateSteps={OFFBOARDING_WORKFLOW}
               ownInduction={ownInduction}
               isManager={isManager}
+              substepTemplates={substepTemplates}
+              departments={departments}
             />
           )}
         </div>
@@ -414,6 +480,8 @@ interface InteractiveWorkflowSectionProps {
   templateSteps: readonly WorkflowStepTemplate[];
   ownInduction: InductionView | null;
   isManager: boolean;
+  substepTemplates: SubstepTemplateView[];
+  departments: DepartmentOption[];
 }
 
 function InteractiveWorkflowSection({
@@ -421,18 +489,161 @@ function InteractiveWorkflowSection({
   templateSteps,
   ownInduction,
   isManager,
+  substepTemplates,
+  departments,
 }: InteractiveWorkflowSectionProps) {
   const ownInductionMatchesKind =
     ownInduction !== null && ownInduction.inductionType === kind;
   const showInteractiveChecklist = ownInductionMatchesKind;
 
-  const stepsToRender: InductionStepView[] = ownInductionMatchesKind
-    ? ownInduction.steps
-    : templateToPreviewSteps(templateSteps);
+  // Manager-side workflow switcher state. Only used when previewing reference
+  // workflows (i.e. the viewer doesn't have an active induction of this kind).
+  // Default is "Standard" = Regular Intern · HQ.
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>("Standard");
+
+  // Department selector for the Department Training sub-workflow. Defaults
+  // to the first department in the list so managers see something on load
+  // without having to pick one first.
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<number | null>(
+    departments[0]?.id ?? null,
+  );
+
+  // Active template for substep lookup — own induction uses its real template,
+  // manager preview uses whichever template the switcher has selected.
+  const activeTemplateKey = ownInductionMatchesKind && ownInduction
+    ? ownInduction.workflowTemplate
+    : selectedTemplateKey;
+
+  // Inductee viewing their own induction → use their employment department.
+  // Manager previewing → use the dropdown selection.
+  const activeDepartmentId = ownInductionMatchesKind && ownInduction
+    ? ownInduction.departmentId
+    : selectedDepartmentId;
+
+  const substepsByParent = groupSubstepsByParent(
+    substepTemplates,
+    activeTemplateKey,
+    activeDepartmentId,
+  );
 
   const subtitle = ownInductionMatchesKind
     ? `Tracking your ${kind.toLowerCase()} progress.`
     : `Reference workflow for ${kind === "Onboarding" ? "new hires" : "exits"}.`;
+
+  if (kind === "Onboarding") {
+    // For manager preview, pick the steps from the currently-selected template
+    // in the switcher. For the inductee's own view, use their real steps.
+    const previewTemplate =
+      WORKFLOW_TEMPLATES[selectedTemplateKey] ?? WORKFLOW_TEMPLATES.Standard;
+    const stepsToRender: InductionStepView[] = ownInductionMatchesKind
+      ? ownInduction.steps
+      : templateToPreviewSteps(previewTemplate);
+
+    const startDate = ownInductionMatchesKind && ownInduction
+      ? ownInduction.startDate
+      : PREVIEW_START_DATE;
+    const activeTemplateMeta =
+      EMPLOYEE_TYPE_TEMPLATES.find((t) => t.key === selectedTemplateKey) ??
+      EMPLOYEE_TYPE_TEMPLATES[0];
+    const swimlaneSubtitle = showInteractiveChecklist
+      ? "Tracking your onboarding progress — click a task to mark it done."
+      : `Reference workflow for ${activeTemplateMeta.short} · ${activeTemplateMeta.location}. ${
+          isManager
+            ? "Switch tabs to see the workflow for each employee type."
+            : ""
+        }`;
+    const swimlaneTitle = showInteractiveChecklist
+      ? "Onboarding workflow"
+      : `Onboarding workflow — ${activeTemplateMeta.short}`;
+
+    return (
+      <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        {/* Template + department switcher — only shown in manager / preview mode */}
+        {!showInteractiveChecklist && (
+          <div className="space-y-3 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+            <div>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                View workflow by employee type
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {EMPLOYEE_TYPE_TEMPLATES.map((t) => {
+                  const isActive = selectedTemplateKey === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => setSelectedTemplateKey(t.key)}
+                      className={
+                        isActive
+                          ? `inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r ${t.accent} px-3 py-1.5 text-xs font-bold text-white shadow ring-2 ring-white`
+                          : "inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+                      }
+                      title={workflowTemplateLabel(t.key)}
+                    >
+                      <span>{t.short}</span>
+                      <span className={isActive ? "text-white/80" : "text-slate-400"}>
+                        · {t.location}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {departments.length > 0 && (
+              <div>
+                <label
+                  htmlFor="dept-switcher"
+                  className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500"
+                >
+                  🏢 Department Training is for…
+                </label>
+                <select
+                  id="dept-switcher"
+                  value={selectedDepartmentId ?? ""}
+                  onChange={(e) =>
+                    setSelectedDepartmentId(e.target.value ? Number(e.target.value) : null)
+                  }
+                  className="w-full max-w-xs rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                >
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Inductees in this department will auto-load this sub-workflow when they
+                  reach the Department Training step.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+        <OnboardingWorkflow
+          steps={stepsToRender}
+          startDate={startDate}
+          token={showInteractiveChecklist && ownInduction ? ownInduction.linkToken : undefined}
+          canMarkComplete={showInteractiveChecklist}
+          title={swimlaneTitle}
+          subtitle={swimlaneSubtitle}
+          // Manager preview — phase locking only applies on the per-employee
+          // induction link, not on the reference workflow shown here.
+          enforceLocking={false}
+          substepsByParent={substepsByParent}
+          templateKey={activeTemplateKey}
+          canManageSubsteps={isManager && !showInteractiveChecklist}
+          currentDepartmentId={activeDepartmentId}
+          departments={departments}
+        />
+      </article>
+    );
+  }
+
+  // Offboarding fallback uses the legacy WorkflowDiagram path — single template,
+  // no switcher needed.
+  const stepsToRender: InductionStepView[] = ownInductionMatchesKind
+    ? ownInduction.steps
+    : templateToPreviewSteps(templateSteps);
 
   return (
     <article className="bg-white border border-slate-200 rounded-2xl p-6">

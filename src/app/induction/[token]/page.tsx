@@ -5,7 +5,10 @@ import { authOptions } from "@/lib/nextauth";
 import { prisma } from "@/lib/prisma";
 import PersonalInductionView from "@/app/induction/components/PersonalInductionView";
 import { canManageInductions } from "@/app/induction/roles";
-import { getInductionByToken } from "@/app/induction/queries";
+import {
+  getInductionByToken,
+  listAllSubstepTemplates,
+} from "@/app/induction/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +73,15 @@ export default async function PersonalInductionPage({ params }: PageProps) {
     }
   }
 
+  // Substep templates feed the auto-attached sub-workflow under Department
+  // Training. Filtered inside the view by the inductee's department.
+  const substepTemplates = await listAllSubstepTemplates();
+
   return (
-    <PersonalInductionView profile={result.profile} canMarkComplete={canMarkComplete} />
+    <PersonalInductionView
+      profile={result.profile}
+      canMarkComplete={canMarkComplete}
+      substepTemplates={substepTemplates}
+    />
   );
 }

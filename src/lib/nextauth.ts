@@ -72,7 +72,11 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  pages:   { signIn: "/login" },
+  // signIn: where unauthenticated users land. error: where NextAuth redirects
+  // on internal auth errors instead of the default /api/auth/error page, which
+  // can 404 if the catch-all handler is mid-restart or its internal page
+  // renderer throws.
+  pages:   { signIn: "/login", error: "/login" },
   session: { strategy: "jwt" },
   secret:  process.env.NEXTAUTH_SECRET,
 };

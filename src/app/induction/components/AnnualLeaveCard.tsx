@@ -38,11 +38,11 @@ export function AnnualLeaveCard({ rows, previewSide = "left" }: Props) {
                 Annual Leave
               </h3>
             </div>
-            <p className="mt-2 text-xs font-medium text-indigo-700">-1 week → today</p>
+            <p className="mt-2 text-xs font-medium text-indigo-700">today → +2 weeks</p>
 
             <ul className="mt-4 space-y-1.5">
               {front.length === 0 ? (
-                <li className="text-sm italic text-indigo-800/70">No annual leave in the past week.</li>
+                <li className="text-sm italic text-indigo-800/70">No upcoming annual leave.</li>
               ) : (
                 front.map((r) => (
                   <li
@@ -84,9 +84,9 @@ export function AnnualLeaveCard({ rows, previewSide = "left" }: Props) {
       <CardHoverPreview
         accent="indigo"
         side={previewSide}
-        title="Recent Annual Leave"
+        title="Upcoming Annual Leave"
         items={previewItems}
-        emptyText="No annual leave in the past week."
+        emptyText="No upcoming annual leave."
         totalLabel={`${rows.length} total · showing top ${Math.min(rows.length, 8)}`}
       />
     </div>

@@ -62,10 +62,11 @@ model branch {
 }
 
 model department {
-  department_id   Int          @id @default(autoincrement())
-  department_name String       @db.VarChar(100)
-  department_code String       @unique @db.VarChar(10)
+  department_id   Int                          @id @default(autoincrement())
+  department_name String                       @db.VarChar(100)
+  department_code String                       @unique @db.VarChar(10)
   employment      employment[]
+  substep_templates induction_substep_template[]
 }
 
 model devices {
@@ -101,6 +102,11 @@ model employment {
   status          String?     @default("active") @db.VarChar(50)
   probation       Boolean     @default(false)
   rate            String?     @db.VarChar(100)
+  // Re-added 2026-05-07 after a prior schema-vs-DB drift caused `prisma db push`
+  // to drop this column with 9 rows of data. Type set to VarChar(50) to match
+  // the surrounding `rate` convention; if old values were stored differently,
+  // change the type here and re-push.
+  working_hours   String?     @db.VarChar(50)
   branch          branch?     @relation(fields: [branch_id], references: [branch_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employment_branch")
   department      department? @relation(fields: [department_id], references: [department_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_employment_department")
   users           users       @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_employment_user")
@@ -217,6 +223,10 @@ model induction_profile {
   status            String    @default("Created") @db.VarChar(20)
   start_date        DateTime  @db.Date
   exit_date         DateTime? @db.Date
+  // How many days HR assigns this induction to last. Used for the dashboard
+  // "expected end" calculation. NULL = fall back to the template default
+  // (Coach Part-timer ≈ 21, all other paths ≈ 3).
+  target_duration_days Int?
   created_by        Int
   completed_at      DateTime? @db.Timestamptz(6)
   created_at        DateTime  @default(now()) @db.Timestamptz(6)
@@ -247,6 +257,8 @@ model induction_step {
   completed_at         DateTime? @db.Timestamptz(6)
   completed_by         Int?
   notes                String?
+  evidence_file_id     String?   @db.VarChar(128)
+  evidence_uploaded_at DateTime? @db.Timestamptz(6)
   created_at           DateTime  @default(now()) @db.Timestamptz(6)
   updated_at           DateTime  @updatedAt @db.Timestamptz(6)
 
@@ -258,6 +270,32 @@ model induction_step {
   @@index([induction_profile_id], map: "idx_induction_step_profile")
   @@index([responsible_user_id], map: "idx_induction_step_responsible")
   @@index([status], map: "idx_induction_step_status")
+}
+
+// Department / branch-level mini-workflow attached to a parent step in a
+// workflow template (e.g. "Department Training" on Standard.15, "3-Week Branch
+// Training" on CoachPartTimer.15). Defined once per template; shared across
+// every inductee on that template.
+model induction_substep_template {
+  id                  Int      @id @default(autoincrement())
+  template_key        String   @db.VarChar(50)
+  parent_step_number  Int
+  // Department-scoped sub-tasks. NULL = global (legacy / applies to anyone
+  // on this template). When set, only inductees whose employment.department_id
+  // matches will see this sub-task in their auto-generated sub-workflow.
+  department_id       Int?
+  title               String   @db.VarChar(200)
+  description         String?
+  // What the employee must submit to complete this sub-task.
+  // One of: photo | video | screenshot | document | text | none.
+  evidence_type       String   @default("photo") @db.VarChar(20)
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @updatedAt @db.Timestamptz(6)
+
+  department department? @relation(fields: [department_id], references: [department_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_induction_substep_template_department")
+
+  @@index([template_key, parent_step_number], map: "idx_induction_substep_template_parent")
+  @@index([department_id], map: "idx_induction_substep_template_department")
 }
 
 model induction_request {

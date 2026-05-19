@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ChevronRight, Home, UserPlus } from "lucide-react";
+import ArchivedInductionsSection from "./ArchivedInductionsSection";
 import CreateInductionForm from "./CreateInductionForm";
 import InductionRowActions from "./InductionRowActions";
 import { RequestList } from "./RequestList";
@@ -27,7 +28,9 @@ export default function InductionControlCentre({
   profiles,
   requests,
 }: InductionControlCentreProps) {
-  const pendingCount = profiles.filter(
+  const activeProfiles = profiles.filter((p) => !p.isArchived);
+  const archivedProfiles = profiles.filter((p) => p.isArchived);
+  const pendingCount = activeProfiles.filter(
     (p) => p.status === "Created" || p.status === "Sent" || p.status === "In Progress",
   ).length;
 
@@ -78,10 +81,10 @@ export default function InductionControlCentre({
             </p>
           </div>
 
-          {profiles.length === 0 ? (
+          {activeProfiles.length === 0 ? (
             <div className="px-6 py-16 text-center">
               <p className="text-sm text-slate-500">
-                No induction profiles yet. Click <span className="font-medium text-slate-700">Create Induction Profile</span> to get started.
+                No active induction profiles. {archivedProfiles.length > 0 ? "See the Archive section below for past inductions." : <>Click <span className="font-medium text-slate-700">Create Induction Profile</span> to get started.</>}
               </p>
             </div>
           ) : (
@@ -100,7 +103,7 @@ export default function InductionControlCentre({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {profiles.map((row) => {
+                  {activeProfiles.map((row) => {
                     const pct =
                       row.totalSteps > 0
                         ? Math.round((row.completedSteps / row.totalSteps) * 100)
@@ -151,6 +154,8 @@ export default function InductionControlCentre({
             </div>
           )}
         </section>
+
+        <ArchivedInductionsSection rows={archivedProfiles} />
       </div>
     </div>
   );

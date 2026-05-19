@@ -16,7 +16,7 @@ import {
   syncAllFromEbrightLeads,
 } from "@/app/induction/jobs/sync-onboarding";
 import {
-  getCombinedAnnualLeavesPastWeek,
+  getCombinedAnnualLeavesUpcoming,
   getCombinedMcLeavesPastWeek,
   getCombinedUpcomingExits,
   getCombinedUpcomingHires,
@@ -59,7 +59,7 @@ export default async function HrDashboardPage() {
     // up offboarding induction for employees in their final week / just-left).
     getCombinedUpcomingExits(60, 7),
     getCombinedMcLeavesPastWeek(),
-    getCombinedAnnualLeavesPastWeek(),
+    getCombinedAnnualLeavesUpcoming(),
   ]);
 
   const onboardingPreview = hires.slice(0, 8).map((h) => ({
