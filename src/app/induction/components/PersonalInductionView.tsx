@@ -1,11 +1,38 @@
 import Link from "next/link";
 import { WorkflowDiagram } from "./WorkflowDiagram";
 import { TrainingChecklist } from "./TrainingChecklist";
-import type { InductionView } from "@/app/induction/queries";
+import OnboardingWorkflow, {
+  type SubstepView as WorkflowSubstepView,
+} from "./OnboardingWorkflow";
+import type { InductionView, SubstepTemplateView } from "@/app/induction/queries";
 
 interface PersonalInductionViewProps {
   profile: InductionView;
   canMarkComplete: boolean;
+  substepTemplates: SubstepTemplateView[];
+}
+
+// Inline copy of the server-only groupSubstepsByParent — filters by template
+// + inductee's department so they only see their own department's sub-tasks.
+function inducteeSubsteps(
+  rows: SubstepTemplateView[],
+  templateKey: string,
+  departmentId: number | null,
+): Record<number, WorkflowSubstepView[]> {
+  const out: Record<number, WorkflowSubstepView[]> = {};
+  for (const r of rows) {
+    if (r.templateKey !== templateKey) continue;
+    if (r.departmentId !== null && r.departmentId !== departmentId) continue;
+    if (!out[r.parentStepNumber]) out[r.parentStepNumber] = [];
+    out[r.parentStepNumber].push({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      evidenceType: r.evidenceType,
+      departmentId: r.departmentId,
+    });
+  }
+  return out;
 }
 
 function formatLongDate(iso: string): string {
@@ -21,12 +48,21 @@ function formatLongDate(iso: string): string {
 export default function PersonalInductionView({
   profile,
   canMarkComplete,
+  substepTemplates,
 }: PersonalInductionViewProps) {
   const total = profile.steps.length;
   const completed = profile.steps.filter((s) => s.status === "Completed").length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const isComplete = total > 0 && completed === total;
   const isHalfway = total > 0 && completed >= Math.ceil(total / 2) && !isComplete;
+
+  // Auto-attach: pick the sub-tasks for this inductee's template AND
+  // their employment department. They never see other departments' workflows.
+  const substepsByParent = inducteeSubsteps(
+    substepTemplates,
+    profile.workflowTemplate,
+    profile.departmentId,
+  );
 
   const isOffboarding = profile.inductionType === "Offboarding";
 
@@ -100,31 +136,48 @@ export default function PersonalInductionView({
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
-            <header className="mb-4">
-              <h2 className="text-base font-semibold text-slate-900">{journeyTitle}</h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Your end-to-end flow at a glance.
-              </p>
-            </header>
-            <WorkflowDiagram steps={profile.steps} />
-          </section>
+        {isOffboarding ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
+              <header className="mb-4">
+                <h2 className="text-base font-semibold text-slate-900">{journeyTitle}</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Your end-to-end flow at a glance.
+                </p>
+              </header>
+              <WorkflowDiagram steps={profile.steps} />
+            </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
-            <header className="mb-4">
-              <h2 className="text-base font-semibold text-slate-900">Your checklist</h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Mark each task complete as you go.
-              </p>
-            </header>
-            <TrainingChecklist
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
+              <header className="mb-4">
+                <h2 className="text-base font-semibold text-slate-900">Your checklist</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Mark each task complete as you go.
+                </p>
+              </header>
+              <TrainingChecklist
+                steps={profile.steps}
+                token={profile.linkToken}
+                canMarkComplete={canMarkComplete}
+              />
+            </section>
+          </div>
+        ) : (
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <OnboardingWorkflow
               steps={profile.steps}
+              startDate={profile.startDate}
               token={profile.linkToken}
               canMarkComplete={canMarkComplete}
+              title={journeyTitle}
+              subtitle="Your end-to-end flow — click any task to see details, or tick it off in the checklist."
+              substepsByParent={substepsByParent}
+              templateKey={profile.workflowTemplate}
+              currentDepartmentId={profile.departmentId}
+              canManageSubsteps={false}
             />
           </section>
-        </div>
+        )}
 
         {isComplete && (
           <footer className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center">

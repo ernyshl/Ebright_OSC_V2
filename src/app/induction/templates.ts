@@ -5,21 +5,109 @@ export interface WorkflowStepTemplate {
   daysFromStart: number;
 }
 
+// ============================================================
+// Composable building blocks for the 4 employee-type templates.
+// Day 1 is identical for everyone; Day 2 splits 4 ways by type;
+// Day 3 splits between standard (interns + full-timers) and the
+// extended Coach 3-week branch training.
+// ============================================================
+
+type StepDef = Omit<WorkflowStepTemplate, "stepNumber">;
+
+// Day 1 — Common path for all employees (5 steps)
+const DAY1_COMMON: readonly StepDef[] = [
+  { title: "eBright Portal Onboarding",         description: "Portal registration and profile setup completed before Day 1 (Candidate).",                  daysFromStart: -1 },
+  { title: "Day 1 Induction Training",          description: "Full induction held at HQ — same for all types (Candidate).",                                 daysFromStart:  0 },
+  { title: "Confirm Attendance & Brief Day 2",  description: "Confirm attendance · brief each candidate on Day 2 · verify branch or HQ assignment (HR).",   daysFromStart:  0 },
+];
+
+// Day 2 — Regular Intern at HQ
+const DAY2_REGULAR_INTERN_HQ: readonly StepDef[] = [
+  { title: "Attendance Report (HQ)",            description: "Photo at HQ reception · 8:45 · submit as proof.",                              daysFromStart: 1 },
+  { title: "Day 2 Video",                       description: "Record based on question and submit.",                                          daysFromStart: 1 },
+  { title: "Library",                           description: "Learn what it is used for and how to find resources.",                          daysFromStart: 1 },
+  { title: "Autocount Payroll",                 description: "Log in · learn to submit a claim.",                                             daysFromStart: 1 },
+  { title: "Process Street",                    description: "Create and run a workflow.",                                                    daysFromStart: 1 },
+  { title: "Logsheet",                          description: "Get link · write daily report · update intern WhatsApp.",                       daysFromStart: 1 },
+  { title: "WhatsApp Groups",                   description: "Verify all required groups.",                                                   daysFromStart: 1 },
+  { title: "Zoom Setup",                        description: "Log in with company email · screenshot.",                                       daysFromStart: 1 },
+  { title: "ClickUp Update",                    description: "Update task completion · screenshot in group.",                                 daysFromStart: 1 },
+];
+
+// Day 2 — Protege Intern at Assigned Branch
+const DAY2_PROTEGE_INTERN_BRANCH: readonly StepDef[] = [
+  { title: "Travel to Assigned Branch",         description: "Report to your designated branch location.",                                    daysFromStart: 1 },
+  { title: "Attendance Report at Branch",       description: "Photo at branch · 8:45 · submit as proof.",                                     daysFromStart: 1 },
+  { title: "Day 2 Video",                       description: "Record based on question and submit.",                                          daysFromStart: 1 },
+  { title: "Branch Orientation",                description: "Familiarise with branch layout, team and setup.",                               daysFromStart: 1 },
+  { title: "System Access at Branch",           description: "Library · Autocount · Process Street — log in and explore.",                    daysFromStart: 1 },
+  { title: "Logsheet",                          description: "Get link · write daily report · update intern WhatsApp.",                       daysFromStart: 1 },
+  { title: "WhatsApp Groups",                   description: "Verify all required groups.",                                                   daysFromStart: 1 },
+  { title: "Zoom Setup",                        description: "Log in with company email · screenshot.",                                       daysFromStart: 1 },
+  { title: "ClickUp Update",                    description: "Update task completion · screenshot in group.",                                 daysFromStart: 1 },
+];
+
+// Day 2 — Coach (Part-timer) at Assigned Branch
+const DAY2_COACH_PART_TIMER: readonly StepDef[] = [
+  { title: "Travel to Assigned Branch",         description: "Go independently to your assigned branch.",                                     daysFromStart: 1 },
+  { title: "Attendance Report at Branch",       description: "Photo at branch · 8:45 · submit as proof.",                                     daysFromStart: 1 },
+  { title: "Day 2 Video",                       description: "Record based on question and submit.",                                          daysFromStart: 1 },
+  { title: "Meet Full-time Coach & Branch Manager", description: "Introduction · briefing on branch operations and expectations.",            daysFromStart: 1 },
+  { title: "Branch Induction",                  description: "Guided by full-time coach through branch systems and workflow.",                 daysFromStart: 1 },
+  { title: "WhatsApp Groups",                   description: "Verify all required groups.",                                                   daysFromStart: 1 },
+  { title: "Zoom Setup",                        description: "Log in with company email · screenshot.",                                       daysFromStart: 1 },
+  { title: "ClickUp Update",                    description: "Update task completion · screenshot in group.",                                 daysFromStart: 1 },
+];
+
+// Day 2 — Full-timer at HQ or Assigned Branch (per role)
+const DAY2_FULL_TIMER: readonly StepDef[] = [
+  { title: "Report to HQ or Assigned Branch",   description: "Based on your department and role assignment.",                                 daysFromStart: 1 },
+  { title: "Attendance Report",                 description: "Photo at location · 8:45 · submit as proof.",                                   daysFromStart: 1 },
+  { title: "Day 2 Video",                       description: "Record based on question and submit.",                                          daysFromStart: 1 },
+  { title: "System Access Setup",               description: "Library · Autocount · Process Street — log in and explore.",                    daysFromStart: 1 },
+  { title: "Process Street",                    description: "Create and run a workflow.",                                                    daysFromStart: 1 },
+  { title: "WhatsApp Groups",                   description: "Verify all required groups.",                                                   daysFromStart: 1 },
+  { title: "Zoom Setup",                        description: "Log in with company email · screenshot.",                                       daysFromStart: 1 },
+  { title: "ClickUp Update",                    description: "Update task completion · screenshot in group.",                                 daysFromStart: 1 },
+];
+
+// Day 3 — Standard close (Regular Intern, Protege Intern, Full-timer)
+const DAY3_STANDARD: readonly StepDef[] = [
+  { title: "Attendance Report (Day 3)",         description: "Photo at location · 8:45 · submit as proof.",                                   daysFromStart: 2 },
+  { title: "Train with Your Trainer",           description: "Complete scheduled training session with assigned trainer.",                     daysFromStart: 2 },
+  { title: "Department Training",               description: "Own department workflow — to be added per department (placeholder).",           daysFromStart: 2 },
+  { title: "Day 3 Video",                       description: "Record based on question and submit.",                                          daysFromStart: 2 },
+];
+
+// Day 3+ — Coach (Part-timer): 3-day induction + 3-week branch training
+const DAY3_COACH: readonly StepDef[] = [
+  { title: "Attendance Report at Branch (Day 3)", description: "Photo at branch · 8:45 · submit as proof.",                                   daysFromStart: 2 },
+  { title: "Train with Full-time Coach",        description: "Day 3 session — guided at assigned branch (Full-time Coach).",                  daysFromStart: 2 },
+  { title: "Day 3 Video",                       description: "Record based on question and submit.",                                          daysFromStart: 2 },
+  { title: "3-Week Branch Training",            description: "Daily at assigned branch · guided by full-time coach or branch manager.",       daysFromStart: 2 },
+  { title: "HQ Visit Days",                     description: "1–2 days per week at HQ · guided by full-time coach or branch manager.",        daysFromStart: 2 },
+];
+
+function buildTemplate(
+  ...parts: ReadonlyArray<readonly StepDef[]>
+): readonly WorkflowStepTemplate[] {
+  const out: WorkflowStepTemplate[] = [];
+  let n = 1;
+  for (const part of parts) {
+    for (const s of part) {
+      out.push({ stepNumber: n++, ...s });
+    }
+  }
+  return out;
+}
+
 export const WORKFLOW_TEMPLATES: Record<string, readonly WorkflowStepTemplate[]> = {
-  Standard: [
-    { stepNumber: 1,  title: "Pre-Onboarding Checklist",        description: "Complete pre-arrival paperwork and confirm logistics.", daysFromStart: -2 },
-    { stepNumber: 2,  title: "Welcome & Orientation",           description: "Attend the company welcome session.",                   daysFromStart: 0 },
-    { stepNumber: 3,  title: "IT Equipment Setup",              description: "Receive and configure laptop, phone, and peripherals.", daysFromStart: 0 },
-    { stepNumber: 4,  title: "System Access Provisioning",      description: "Set up email, SSO, VPN, and required tooling.",         daysFromStart: 0 },
-    { stepNumber: 5,  title: "Compliance & Security Training",  description: "Complete mandatory compliance and security modules.",   daysFromStart: 1 },
-    { stepNumber: 6,  title: "Company Policies Review",         description: "Read and acknowledge core company policies.",           daysFromStart: 1 },
-    { stepNumber: 7,  title: "Team Introduction",               description: "Meet your immediate team members.",                     daysFromStart: 1 },
-    { stepNumber: 8,  title: "Department Overview",             description: "Learn how your department operates.",                   daysFromStart: 2 },
-    { stepNumber: 9,  title: "Role-Specific Training",          description: "Begin training tailored to your role.",                 daysFromStart: 3 },
-    { stepNumber: 10, title: "Mentorship Assignment",           description: "Meet your assigned buddy or mentor.",                   daysFromStart: 4 },
-    { stepNumber: 11, title: "First Week Goals",                description: "Agree first-week objectives with your manager.",        daysFromStart: 5 },
-    { stepNumber: 12, title: "Onboarding Complete",             description: "Final check-in with HR.",                               daysFromStart: 7 },
-  ],
+  // "Standard" is kept as the default key (= Regular Intern @ HQ) so existing
+  // call sites that hardcode "Standard" continue to work without churn.
+  Standard:               buildTemplate(DAY1_COMMON, DAY2_REGULAR_INTERN_HQ,    DAY3_STANDARD),
+  ProtegeInternBranch:    buildTemplate(DAY1_COMMON, DAY2_PROTEGE_INTERN_BRANCH, DAY3_STANDARD),
+  CoachPartTimer:         buildTemplate(DAY1_COMMON, DAY2_COACH_PART_TIMER,      DAY3_COACH),
+  FullTimer:              buildTemplate(DAY1_COMMON, DAY2_FULL_TIMER,            DAY3_STANDARD),
   "IT-Heavy": [
     { stepNumber: 1, title: "IT Equipment Setup",     description: "Receive laptop, phone, and other equipment.",        daysFromStart: 0 },
     { stepNumber: 2, title: "VPN & Network Setup",    description: "Configure VPN and network access.",                  daysFromStart: 0 },
@@ -60,6 +148,38 @@ export const OFFBOARDING_WORKFLOW: readonly WorkflowStepTemplate[] = [
 ];
 
 export const WORKFLOW_TEMPLATE_NAMES = Object.keys(WORKFLOW_TEMPLATES);
+
+// Human-readable labels for the workflow keys, surfaced in HR forms.
+// Key not present here? The form falls back to the raw key.
+export const WORKFLOW_TEMPLATE_LABELS: Record<string, string> = {
+  Standard:            "Regular Intern · HQ",
+  ProtegeInternBranch: "Protege Intern · Branch",
+  CoachPartTimer:      "Coach (Part-timer) · Branch + 3-week training",
+  FullTimer:           "Full-timer · HQ or Branch",
+  "IT-Heavy":          "IT-Heavy (legacy)",
+  Remote:              "Remote (legacy)",
+};
+
+export function workflowTemplateLabel(name: string): string {
+  return WORKFLOW_TEMPLATE_LABELS[name] ?? name;
+}
+
+// Default induction duration per template (in days). Coaches get the
+// extended 3-day induction + 3-week branch training (~21 calendar days).
+// Everyone else completes within 3 days. HR can override per employee on
+// induction_profile.target_duration_days.
+const DEFAULT_DURATION_DAYS: Record<string, number> = {
+  Standard:               3,   // Regular Intern · HQ
+  ProtegeInternBranch:    3,
+  CoachPartTimer:        21,
+  FullTimer:              3,
+  "IT-Heavy":             7,
+  Remote:                 7,
+};
+
+export function defaultDurationDays(templateKey: string): number {
+  return DEFAULT_DURATION_DAYS[templateKey] ?? 3;
+}
 
 export function isKnownTemplate(name: string): boolean {
   return Object.prototype.hasOwnProperty.call(WORKFLOW_TEMPLATES, name);

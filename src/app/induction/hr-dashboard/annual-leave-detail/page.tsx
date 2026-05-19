@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/app/components/AppShell";
 import { HRMSSidebar } from "@/app/induction/components/HRMSSidebar";
 import { canManageInductions } from "@/app/induction/roles";
-import { getCombinedAnnualLeavesPastWeek } from "@/app/induction/queries";
+import { getCombinedAnnualLeavesUpcoming } from "@/app/induction/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,7 @@ export default async function AnnualLeaveDetailPage() {
   const canManage = canManageInductions(actor?.role?.role_type ?? null);
   if (!canManage) redirect("/dashboards/hrms");
 
-  const rows = await getCombinedAnnualLeavesPastWeek();
+  const rows = await getCombinedAnnualLeavesUpcoming();
 
   const userEmail = session.user.email;
   const userRole = actor?.role?.role_type ?? "";
@@ -47,7 +47,7 @@ export default async function AnnualLeaveDetailPage() {
                 Back to Overview
               </Link>
               <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-                Annual Leave (-1 week → today) [{rows.length}]
+                Annual Leave (today → +2 weeks) [{rows.length}]
               </h1>
               <p className="text-sm text-indigo-100">
                 Combined from local leave records and ebrightleads_db

@@ -71,7 +71,11 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
+          {/* method="post" is the no-JS fallback so the browser never falls
+              back to GET — which would leak email + password into the URL bar
+              and server logs. The handleSubmit handler still preventDefault()s
+              and signs in via NextAuth when JS is loaded. */}
+          <form onSubmit={handleSubmit} method="post" className="space-y-6" autoComplete="off">
             <div className="space-y-2">
               <label htmlFor="login-email" className="block text-sm font-medium text-blue-100 ml-1">
                 Email

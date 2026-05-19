@@ -5,14 +5,73 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/nextauth";
 import { prisma } from "@/lib/prisma";
+import { uploadToDrive } from "@/lib/drive";
 import { canManageInductions } from "@/app/induction/roles";
+import {
+  getOwnInductionView,
+  type InductionView,
+} from "@/app/induction/queries";
 import {
   WORKFLOW_TEMPLATES,
   computeStepDueDate,
+  defaultDurationDays,
   isKnownTemplate,
 } from "@/app/induction/templates";
 
 const TOKEN_TTL_DAYS = 30;
+
+// Day-blocking phases — must mirror the bucketing in OnboardingWorkflow.tsx.
+type InductionPhase = "pre" | "day1" | "day2" | "day3";
+const PHASE_ORDER: InductionPhase[] = ["pre", "day1", "day2", "day3"];
+const PHASE_LABEL: Record<InductionPhase, string> = {
+  pre: "Pre-onboarding",
+  day1: "Day 1",
+  day2: "Day 2",
+  day3: "Day 3",
+};
+
+function phaseFor(stepDueDate: Date, profileStartDate: Date): InductionPhase {
+  const ms = stepDueDate.getTime() - profileStartDate.getTime();
+  const days = Math.round(ms / 86_400_000);
+  if (days < 0) return "pre";
+  if (days === 0) return "day1";
+  if (days === 1) return "day2";
+  return "day3";
+}
+
+/**
+ * Returns the first incomplete step in any phase that comes BEFORE the target
+ * phase, or null if all earlier-phase steps are done. Used to enforce that
+ * Day N+1 cannot be completed until Day N is fully done.
+ */
+async function findPriorPhaseBlocker(
+  profileId: number,
+  startDate: Date,
+  targetPhase: InductionPhase,
+): Promise<
+  | { stepNumber: number; title: string; phase: InductionPhase }
+  | null
+> {
+  const targetIdx = PHASE_ORDER.indexOf(targetPhase);
+  if (targetIdx <= 0) return null;
+  const earlier = new Set(PHASE_ORDER.slice(0, targetIdx));
+  const all = await prisma.induction_step.findMany({
+    where: { induction_profile_id: profileId },
+    select: { step_number: true, title: true, due_date: true, status: true },
+    orderBy: { step_number: "asc" },
+  });
+  for (const s of all) {
+    if (s.status === "Completed") continue;
+    const phase = phaseFor(s.due_date, startDate);
+    if (earlier.has(phase)) {
+      return { stepNumber: s.step_number, title: s.title, phase };
+    }
+  }
+  return null;
+}
+
+const ALLOWED_EVIDENCE_EXTS = new Set([".jpg", ".jpeg", ".png"]);
+const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024; // 10 MB cap matches typical phone photos.
 
 function generateToken(): string {
   return randomBytes(32).toString("hex");
@@ -582,7 +641,7 @@ export async function markStepCompleteByToken(
 
   const profile = await prisma.induction_profile.findUnique({
     where: { link_token: token },
-    select: { id: true, user_id: true, link_expires_at: true, status: true },
+    select: { id: true, user_id: true, link_expires_at: true, status: true, start_date: true },
   });
   if (!profile) return { ok: false, error: "Invalid or revoked link." };
   if (profile.link_expires_at.getTime() < Date.now()) {
@@ -611,6 +670,7 @@ export async function markStepCompleteByToken(
       title: true,
       induction_profile_id: true,
       status: true,
+      due_date: true,
       responsible_person: { select: { email: true } },
     },
   });
@@ -621,6 +681,16 @@ export async function markStepCompleteByToken(
     return { ok: true };
   }
 
+  // Day-blocking: refuse if any earlier-phase step is still incomplete.
+  const targetPhase = phaseFor(step.due_date, profile.start_date);
+  const blocker = await findPriorPhaseBlocker(profile.id, profile.start_date, targetPhase);
+  if (blocker) {
+    return {
+      ok: false,
+      error: `${PHASE_LABEL[blocker.phase]} isn't complete yet — finish step ${blocker.stepNumber} (${blocker.title}) first.`,
+    };
+  }
+
   try {
     await prisma.$transaction(async (tx) => {
       await tx.induction_step.update({
@@ -628,7 +698,9 @@ export async function markStepCompleteByToken(
         data: {
           status: "Completed",
           completed_at: new Date(),
-          completed_by: profile.user_id,
+          // Prisma 7 hides the scalar FK on update inputs when the field is
+          // bound to a relation; must write through the relation instead.
+          completed_by_user: { connect: { user_id: profile.user_id } },
         },
       });
 
@@ -679,6 +751,166 @@ export async function markStepCompleteByToken(
   revalidatePath(`/induction/${token}`);
   revalidatePath("/induction/control-centre");
   return { ok: true };
+}
+
+export interface SubmitEvidenceResult {
+  ok: boolean;
+  error?: string;
+  fileId?: string;
+}
+
+/**
+ * Upload a photo as evidence for a step, then mark the step Completed.
+ * Same auth model as markStepCompleteByToken (token + signed-in owner-or-manager)
+ * plus day-blocking: cannot submit if an earlier phase still has incomplete steps.
+ */
+export async function submitStepEvidenceByToken(
+  formData: FormData,
+): Promise<SubmitEvidenceResult> {
+  const stepId = Number(formData.get("stepId"));
+  const token = s(formData, "token");
+  const file = formData.get("file");
+
+  if (!Number.isFinite(stepId) || stepId <= 0) {
+    return { ok: false, error: "Invalid step id." };
+  }
+  if (!token) {
+    return { ok: false, error: "Missing token." };
+  }
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Please attach a photo." };
+  }
+  const ext = (file.name.match(/\.[a-z0-9]+$/i)?.[0] ?? "").toLowerCase();
+  if (!ALLOWED_EVIDENCE_EXTS.has(ext)) {
+    return { ok: false, error: "Photo must be JPG or PNG." };
+  }
+  if (file.size > MAX_EVIDENCE_BYTES) {
+    return { ok: false, error: "Photo exceeds 10MB." };
+  }
+
+  const profile = await prisma.induction_profile.findUnique({
+    where: { link_token: token },
+    select: {
+      id: true,
+      user_id: true,
+      link_expires_at: true,
+      status: true,
+      start_date: true,
+    },
+  });
+  if (!profile) return { ok: false, error: "Invalid or revoked link." };
+  if (profile.link_expires_at.getTime() < Date.now()) {
+    return { ok: false, error: "This induction link has expired." };
+  }
+
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return { ok: false, error: "Please sign in to submit evidence." };
+  }
+  const actor = await prisma.users.findUnique({
+    where: { email: session.user.email },
+    select: { user_id: true, role: { select: { role_type: true } } },
+  });
+  if (!actor) return { ok: false, error: "User record not found." };
+  const isManager = canManageInductions(actor.role?.role_type ?? null);
+  const isOwner = actor.user_id === profile.user_id;
+  if (!isManager && !isOwner) {
+    return { ok: false, error: "You are not authorized to submit evidence here." };
+  }
+
+  const step = await prisma.induction_step.findUnique({
+    where: { id: stepId },
+    select: {
+      id: true,
+      title: true,
+      induction_profile_id: true,
+      status: true,
+      due_date: true,
+    },
+  });
+  if (!step || step.induction_profile_id !== profile.id) {
+    return { ok: false, error: "Step does not belong to this induction." };
+  }
+  if (step.status === "Completed") {
+    return { ok: true };
+  }
+
+  const targetPhase = phaseFor(step.due_date, profile.start_date);
+  const blocker = await findPriorPhaseBlocker(profile.id, profile.start_date, targetPhase);
+  if (blocker) {
+    return {
+      ok: false,
+      error: `${PHASE_LABEL[blocker.phase]} isn't complete yet — finish step ${blocker.stepNumber} (${blocker.title}) first.`,
+    };
+  }
+
+  let evidenceFileId: string;
+  try {
+    const uploaded = await uploadToDrive(file, {
+      prefix: `step-${stepId}`,
+      folderPath: ["induction-evidence", String(profile.id)],
+    });
+    evidenceFileId = uploaded.id;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Drive upload failed.";
+    return { ok: false, error: msg };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.induction_step.update({
+        where: { id: stepId },
+        data: {
+          status: "Completed",
+          completed_at: new Date(),
+          completed_by_user: { connect: { user_id: profile.user_id } },
+          evidence_file_id: evidenceFileId,
+          evidence_uploaded_at: new Date(),
+        },
+      });
+
+      const remaining = await tx.induction_step.count({
+        where: {
+          induction_profile_id: profile.id,
+          status: { not: "Completed" },
+        },
+      });
+
+      const nextProfileStatus =
+        remaining === 0
+          ? "Completed"
+          : profile.status === "Created" || profile.status === "Sent"
+            ? "In Progress"
+            : profile.status;
+
+      if (nextProfileStatus !== profile.status || remaining === 0) {
+        await tx.induction_profile.update({
+          where: { id: profile.id },
+          data: {
+            status: nextProfileStatus,
+            completed_at: remaining === 0 ? new Date() : null,
+          },
+        });
+      }
+
+      if (remaining === 0) {
+        await tx.induction_request.updateMany({
+          where: {
+            induction_profile_id: profile.id,
+            status: { in: ["accepted", "pending"] },
+          },
+          data: { status: "completed" },
+        });
+      }
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unknown database error.";
+    return { ok: false, error: `Could not record evidence: ${msg}` };
+  }
+
+  revalidatePath(`/induction/${token}`);
+  revalidatePath("/induction/control-centre");
+  return { ok: true, fileId: evidenceFileId };
 }
 
 // ============ Slice E: surveys & recommendations ============
@@ -756,3 +988,190 @@ export async function updateRecommendationStatus(
 
   revalidatePath("/induction/feedback-analytics");
 }
+
+// ============ Employee detail modal — manager fetch by user id ============
+
+export type FetchInductionForManagerResult =
+  | { ok: true; data: InductionView }
+  | { ok: false; error: string };
+
+/**
+ * Fetches the full InductionView for a single employee, by user id, on behalf
+ * of an HR / admin / CEO viewer (or the inductee themselves). Used by the
+ * employee-detail modal on the HR dashboard so a manager can see per-step
+ * status and uploaded evidence without needing the induction's link token.
+ */
+export async function fetchInductionForManager(
+  userId: number,
+): Promise<FetchInductionForManagerResult> {
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return { ok: false, error: "Invalid user id." };
+  }
+
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return { ok: false, error: "Not authenticated." };
+  }
+
+  const actor = await prisma.users.findUnique({
+    where: { email: session.user.email },
+    select: { user_id: true, role: { select: { role_type: true } } },
+  });
+  if (!actor) return { ok: false, error: "User record not found." };
+
+  const isManager = canManageInductions(actor.role?.role_type ?? null);
+  const isOwner = actor.user_id === userId;
+  if (!isManager && !isOwner) {
+    return { ok: false, error: "Not authorised to view this induction." };
+  }
+
+  const view = await getOwnInductionView(userId);
+  if (!view) {
+    return { ok: false, error: "No induction profile exists for this employee yet." };
+  }
+
+  return { ok: true, data: view };
+}
+
+// ============ Substep template management (HR-only) ============
+
+export interface SubstepActionResult {
+  ok: boolean;
+  error?: string;
+  id?: number;
+}
+
+/**
+ * Add a sub-task to a parent step in a workflow template.
+ * Used by departments / branches to flesh out placeholder steps like
+ * "Department Training" and "3-Week Branch Training". HR-gated.
+ */
+export async function addSubstepTemplate(
+  formData: FormData,
+): Promise<SubstepActionResult> {
+  const auth = await loadActorAndAuthorize();
+  if (!auth.ok) return { ok: false, error: auth.error };
+
+  const templateKey = s(formData, "template_key");
+  const parentStepRaw = formData.get("parent_step_number");
+  const parentStepNumber = Number(parentStepRaw);
+  const title = s(formData, "title");
+  const description = s(formData, "description") || null;
+  const evidenceTypeRaw = s(formData, "evidence_type") || "photo";
+  const departmentIdRaw = formData.get("department_id");
+  const departmentId =
+    typeof departmentIdRaw === "string" && departmentIdRaw.trim() !== ""
+      ? Number(departmentIdRaw)
+      : null;
+
+  const ALLOWED_EVIDENCE_TYPES = new Set([
+    "photo",
+    "video",
+    "screenshot",
+    "document",
+    "text",
+    "none",
+  ]);
+  const evidenceType = ALLOWED_EVIDENCE_TYPES.has(evidenceTypeRaw)
+    ? evidenceTypeRaw
+    : "photo";
+
+  if (!templateKey || !isKnownTemplate(templateKey)) {
+    return { ok: false, error: "Unknown workflow template." };
+  }
+  if (!Number.isFinite(parentStepNumber) || parentStepNumber <= 0) {
+    return { ok: false, error: "Invalid parent step number." };
+  }
+  if (!title || title.length > 200) {
+    return { ok: false, error: "Title is required (up to 200 characters)." };
+  }
+  if (departmentId !== null && (!Number.isFinite(departmentId) || departmentId <= 0)) {
+    return { ok: false, error: "Invalid department." };
+  }
+
+  try {
+    const created = await prisma.induction_substep_template.create({
+      data: {
+        template_key: templateKey,
+        parent_step_number: parentStepNumber,
+        department_id: departmentId,
+        title,
+        description,
+        evidence_type: evidenceType,
+      },
+      select: { id: true },
+    });
+    revalidatePath("/induction/onboarding-dashboard");
+    revalidatePath("/induction/control-centre");
+    return { ok: true, id: created.id };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Database error.";
+    return { ok: false, error: `Could not save sub-task: ${msg}` };
+  }
+}
+
+export async function deleteSubstepTemplate(
+  id: number,
+): Promise<SubstepActionResult> {
+  const auth = await loadActorAndAuthorize();
+  if (!auth.ok) return { ok: false, error: auth.error };
+
+  if (!Number.isFinite(id) || id <= 0) {
+    return { ok: false, error: "Invalid sub-task id." };
+  }
+
+  try {
+    await prisma.induction_substep_template.delete({ where: { id } });
+    revalidatePath("/induction/onboarding-dashboard");
+    revalidatePath("/induction/control-centre");
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Database error.";
+    return { ok: false, error: `Could not delete sub-task: ${msg}` };
+  }
+}
+
+// ============ Set HR-assigned induction duration ============
+
+export interface SetInductionDurationResult {
+  ok: boolean;
+  error?: string;
+  durationDays?: number;
+}
+
+/**
+ * HR sets how many calendar days an induction should take. NULL clears the
+ * override and falls back to the template default (3 for most paths, 21 for
+ * Coach Part-timer).
+ */
+export async function setInductionDurationDays(
+  inductionProfileId: number,
+  days: number | null,
+): Promise<SetInductionDurationResult> {
+  const auth = await loadActorAndAuthorize();
+  if (!auth.ok) return { ok: false, error: auth.error };
+
+  if (!Number.isFinite(inductionProfileId) || inductionProfileId <= 0) {
+    return { ok: false, error: "Invalid induction profile id." };
+  }
+  if (days !== null && (!Number.isFinite(days) || days <= 0 || days > 365)) {
+    return { ok: false, error: "Duration must be between 1 and 365 days." };
+  }
+
+  try {
+    const updated = await prisma.induction_profile.update({
+      where: { id: inductionProfileId },
+      data: { target_duration_days: days },
+      select: { target_duration_days: true, workflow_template: true },
+    });
+    const effective = updated.target_duration_days ?? defaultDurationDays(updated.workflow_template);
+    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
+    revalidatePath("/induction/hr-dashboard");
+    return { ok: true, durationDays: effective };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Database error.";
+    return { ok: false, error: `Could not save duration: ${msg}` };
+  }
+}
+

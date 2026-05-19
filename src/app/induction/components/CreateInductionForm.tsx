@@ -4,7 +4,10 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { UserPlus } from "lucide-react";
 import { createInduction } from "@/app/induction/actions";
-import { WORKFLOW_TEMPLATE_NAMES } from "@/app/induction/templates";
+import {
+  WORKFLOW_TEMPLATE_NAMES,
+  workflowTemplateLabel,
+} from "@/app/induction/templates";
 import type { InductionEmployeeOption } from "@/app/induction/queries";
 
 interface CreateInductionFormProps {
@@ -155,7 +158,7 @@ export default function CreateInductionForm({ employees }: CreateInductionFormPr
                 >
                   {WORKFLOW_TEMPLATE_NAMES.map((name) => (
                     <option key={name} value={name}>
-                      {name}
+                      {workflowTemplateLabel(name)}
                     </option>
                   ))}
                 </select>
