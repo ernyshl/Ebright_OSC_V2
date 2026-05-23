@@ -672,6 +672,159 @@ export async function declineInductionRequest(
   }
 }
 
+export interface AssignCandidateRoleParams {
+  profileId: number;
+  role: string;
+  departmentId: number;
+  branchId: number | null;
+  /** Manager the new hire reports to. NOT PERSISTED in this PR — schema has
+   *  no reports_to column on employment yet. Accepted for forward-compat
+   *  with future schema add. Logged for audit but otherwise ignored. */
+  reportsToUserId: number | null;
+}
+
+export interface AssignCandidateRoleResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Move a completed candidate out of the onboarding pipeline by promoting
+ * their employment record to the chosen permanent role. Admin-only — gated
+ * via the same loadActorAndAuthorize() that other mutations use, narrowed
+ * here to admin/superadmin specifically.
+ *
+ * What this does:
+ *  1. Verifies the profile exists, is Onboarding, and status is "Completed"
+ *  2. Updates the user's most-recent employment row: position = role,
+ *     department_id, branch_id, status = "active"
+ *  3. Marks induction_profile.status = "Assigned" so it drops out of
+ *     pipeline queries
+ *
+ * What this does NOT do (deferred):
+ *  - reportsToUserId is captured in the form but NOT persisted (no
+ *    `reports_to` column on employment yet — add via future schema PR)
+ *  - No audit log event yet (audit log subsystem is its own future PR)
+ *  - No email notification to the candidate
+ */
+export async function assignCandidateRole(
+  params: AssignCandidateRoleParams,
+): Promise<AssignCandidateRoleResult> {
+  const { profileId, role, departmentId, branchId, reportsToUserId } = params;
+
+  const auth = await loadActorAndAuthorize();
+  if (!auth.ok) return { ok: false, error: auth.error };
+
+  // Narrow further: only admin/superadmin can assign roles. canManageInductions
+  // (which loadActorAndAuthorize uses) includes "hr" and "od" too, but the
+  // spec says Assign Role is admin-only on this page.
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) return { ok: false, error: "Not signed in." };
+  const actorUser = await prisma.users.findUnique({
+    where: { email: session.user.email },
+    select: { role: { select: { role_type: true } } },
+  });
+  const roleType = (actorUser?.role?.role_type ?? "").toLowerCase();
+  if (roleType !== "admin" && roleType !== "superadmin") {
+    return { ok: false, error: "Only admin / superadmin can assign roles." };
+  }
+
+  if (!Number.isFinite(profileId) || profileId <= 0) {
+    return { ok: false, error: "Invalid profile id." };
+  }
+  if (!role.trim()) return { ok: false, error: "Role is required." };
+  if (!Number.isFinite(departmentId) || departmentId <= 0) {
+    return { ok: false, error: "Department is required." };
+  }
+
+  const profile = await prisma.induction_profile.findUnique({
+    where: { id: profileId },
+    select: {
+      id: true,
+      user_id: true,
+      induction_type: true,
+      status: true,
+    },
+  });
+  if (!profile) return { ok: false, error: "Induction profile not found." };
+  if (profile.induction_type === "Offboarding") {
+    return { ok: false, error: "Cannot assign a role to an offboarding profile." };
+  }
+  if (profile.status !== "Completed") {
+    return {
+      ok: false,
+      error: `Cannot assign a role until induction is Completed (current status: "${profile.status}").`,
+    };
+  }
+
+  // Find the user's most-recent employment row (active or onboarding).
+  // If none exists, we create one — the candidate's account was likely
+  // created via /register without an immediate employment row.
+  const existingEmployment = await prisma.employment.findFirst({
+    where: {
+      user_id: profile.user_id,
+      status: { in: ["active", "onboarding"] },
+    },
+    orderBy: { start_date: "desc" },
+    select: { employment_id: true },
+  });
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (existingEmployment) {
+        await tx.employment.update({
+          where: { employment_id: existingEmployment.employment_id },
+          data: {
+            position: role,
+            department_id: departmentId,
+            branch_id: branchId,
+            status: "active",
+          },
+        });
+      } else {
+        await tx.employment.create({
+          data: {
+            user_id: profile.user_id,
+            position: role,
+            department_id: departmentId,
+            branch_id: branchId,
+            status: "active",
+            start_date: new Date(),
+          },
+        });
+      }
+
+      await tx.induction_profile.update({
+        where: { id: profileId },
+        data: { status: "Assigned" },
+      });
+    });
+
+    console.info(
+      "[admin] assignCandidateRole:",
+      JSON.stringify({
+        profileId,
+        userId: profile.user_id,
+        role,
+        departmentId,
+        branchId,
+        reportsToUserId,
+        assignedBy: actorUser?.role?.role_type,
+      }),
+    );
+
+    revalidatePath("/admin/onboarding");
+    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
+    revalidatePath("/dashboards/hrms");
+
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unknown database error.";
+    return { ok: false, error: `Could not assign role: ${msg}` };
+  }
+}
+
 export interface MarkStepCompleteResult {
   ok: boolean;
   error?: string;
