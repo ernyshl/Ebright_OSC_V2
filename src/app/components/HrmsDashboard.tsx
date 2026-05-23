@@ -14,11 +14,13 @@ import {
   Home,
   ChevronRight,
   Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
 const MANAGE_INDUCTION_ROLE_TYPES = new Set(["superadmin", "hr", "od"]);
+const ADMIN_ROLE_TYPES = new Set(["superadmin", "admin"]);
 
 interface HrmsModule {
   id: string;
@@ -135,6 +137,16 @@ const modules: HrmsModule[] = [
     Icon: Users,
     accent: "bg-indigo-600",
     accentHover: "group-hover:bg-indigo-700",
+  },
+  {
+    id: "admin-overview",
+    title: "Admin Overview",
+    description: "System-wide stats, branches, users, settings",
+    href: "/dashboards/admin-overview",
+    Icon: ShieldCheck,
+    accent: "bg-slate-700",
+    accentHover: "group-hover:bg-slate-900",
+    requiredRoles: ADMIN_ROLE_TYPES,
   },
 ];
 

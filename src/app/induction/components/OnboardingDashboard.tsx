@@ -688,19 +688,12 @@ export default function OnboardingDashboard({
           />
         )}
 
-        {showHRLayout && (
-          <div className="mb-6">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
-              Upcoming Hires (±1 week window)
-            </h2>
-            <p className="text-xs text-slate-500">
-              Use this section to add employees nearing their start date to the induction queue.
-            </p>
-          </div>
-        )}
-
+        {/* The "Upcoming Hires" intake card is hidden in the new HR layout
+            (showHRLayout) — the spec's Onboarding Candidates table replaces
+            it. Card remains visible for ?type=offboarding and ?type=both
+            views (showHRLayout = false there). */}
         <div className={`grid grid-cols-1 ${view === "both" ? "lg:grid-cols-2" : ""} gap-6 mb-8`}>
-          {showOnboarding && (
+          {showOnboarding && !showHRLayout && (
           /* Onboarding card */
           <article className="bg-white border border-slate-200 rounded-2xl p-6">
             <header className="flex items-start justify-between gap-4 mb-5">
