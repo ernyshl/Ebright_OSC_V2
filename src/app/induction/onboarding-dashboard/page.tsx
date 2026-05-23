@@ -104,9 +104,11 @@ export default async function OnboardingDashboardPage({ searchParams }: PageProp
   );
 
   // For the new HR view: only show onboarding profiles (not offboarding) in
-  // the candidates table + stats, and only active ones (not archived).
+  // the candidates table + stats. Excludes archived AND role-assigned
+  // candidates (the latter have been promoted out of the pipeline via the
+  // admin Assign Role flow).
   const onboardingProfiles = allProfiles.filter(
-    (p) => p.inductionType !== "Offboarding" && !p.isArchived,
+    (p) => p.inductionType !== "Offboarding" && !p.isArchived && p.status !== "Assigned",
   );
 
   const userEmail = session.user.email;
