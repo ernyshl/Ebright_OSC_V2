@@ -449,17 +449,10 @@ export default function OnboardingDashboard({
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" />
               Refresh
             </button>
-            {showHRLayout && (
-              <button
-                type="button"
-                onClick={() => setCreateModalState({ mode: "form" })}
-                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-              >
-                ＋ New Candidate
-              </button>
-            )}
-            {/* "Control Centre →" link removed in Phase D — Control Centre
-                page deleted, all management is on this page now */}
+            {/* "+ New Candidate" button removed — Create Induction Profile
+                is triggered from the Employee Dashboard instead. Modal
+                + form logic stays so Accept-on-pending-request still
+                renders the credential view in-place. */}
           </div>
         </header>
 

@@ -20,6 +20,11 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { deleteEmployee } from "@/app/dashboard-employee-management/actions";
+import {
+  EmployeeDashboardOverviewSection,
+  type OverviewStats,
+  type CandidatePanelRow,
+} from "@/app/components/EmployeeDashboardOverviewSection";
 
 const ROLE_OPTIONS = ["FT CEO", "FT HOD", "FT EXEC", "BM", "FT COACH", "PT COACH", "INTERN"] as const;
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
@@ -104,10 +109,16 @@ export default function EmployeeListView({
   employees,
   branches,
   departments,
+  overviewStats,
+  candidates,
 }: {
   employees: EmployeeRow[];
   branches: BranchOpt[];
   departments: DepartmentOpt[];
+  /** Optional — when provided, renders the 5-card overview + onboarding panel
+   *  above the existing employees table. */
+  overviewStats?: OverviewStats;
+  candidates?: CandidatePanelRow[];
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -364,6 +375,13 @@ export default function EmployeeListView({
             </Link>
           </div>
         </div>
+
+        {overviewStats && candidates && (
+          <EmployeeDashboardOverviewSection
+            stats={overviewStats}
+            candidates={candidates}
+          />
+        )}
 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-200 flex items-center gap-3 flex-wrap">
