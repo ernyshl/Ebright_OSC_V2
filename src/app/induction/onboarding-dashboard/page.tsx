@@ -14,6 +14,7 @@ import {
   listAllInductionProfiles,
   listAllSubstepTemplates,
   listDepartments,
+  listInductionEligibleEmployees,
   listPendingInductionRequests,
 } from "@/app/induction/queries";
 import {
@@ -105,6 +106,11 @@ export default async function OnboardingDashboardPage({ searchParams }: PageProp
     fetchOnboardingExtras ? fetchActiveUsersForReportsTo() : Promise.resolve([]),
   ]);
 
+  // Phase B: fetch eligible employees for the "+ New Candidate" modal email lookup
+  const eligibleEmployees = fetchOnboardingExtras
+    ? await listInductionEligibleEmployees()
+    : [];
+
   const hires = hiresAll.filter((h) => Math.abs(h.daysUntilStart) <= 7);
   const exits = exitsAll.filter(
     (e) => e.daysUntilEnd >= 0 && e.daysUntilEnd <= 14,
@@ -140,6 +146,7 @@ export default async function OnboardingDashboardPage({ searchParams }: PageProp
             branches={branches}
             branchByUserId={branchByUserId}
             activeUsers={activeUsers}
+            eligibleEmployees={eligibleEmployees}
           />
         </div>
       </div>

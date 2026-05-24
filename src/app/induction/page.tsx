@@ -16,7 +16,7 @@ export default async function InductionIndexPage() {
   });
 
   if (canManageInductions(actor?.role?.role_type ?? null)) {
-    redirect("/induction/control-centre");
+    redirect("/induction/onboarding-dashboard?type=onboarding");
   }
   redirect("/dashboards/hrms");
 }

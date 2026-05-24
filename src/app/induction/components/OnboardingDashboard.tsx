@@ -30,6 +30,11 @@ import type {
 } from "@/app/induction/queries";
 import type { BranchOpt } from "@/lib/employeeQueries";
 import { AssignRoleModal, type ActiveUserOption } from "./AssignRoleModal";
+import {
+  CreateInductionProfileModal,
+  type ModalState as CreateModalState,
+} from "./CreateInductionProfileModal";
+import type { InductionEmployeeOption } from "@/app/induction/queries";
 
 // Inline copy of groupSubstepsByParent — queries.ts is server-only so its
 // runtime helpers can't be imported into this client component.
@@ -111,6 +116,9 @@ interface OnboardingDashboardProps {
   /** Phase 2B+: active users (HR/HOD/etc) for the "Reports To" dropdown
    *  in the Assign Role modal. */
   activeUsers?: ActiveUserOption[];
+  /** Phase B: eligible employees for the Create Induction Profile modal
+   *  email-lookup. Only populated when view === "onboarding". */
+  eligibleEmployees?: InductionEmployeeOption[];
 }
 
 // Phase 2B: 5 employee-type categories per spec v2. Keys map to
@@ -243,6 +251,7 @@ export default function OnboardingDashboard({
   branches,
   branchByUserId,
   activeUsers,
+  eligibleEmployees,
 }: OnboardingDashboardProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -257,6 +266,8 @@ export default function OnboardingDashboard({
   const [requestActionErrors, setRequestActionErrors] = useState<Map<number, string>>(new Map());
   // Phase 2B+ state — Assign Role modal target.
   const [assigningProfile, setAssigningProfile] = useState<PendingInductionRow | null>(null);
+  // Phase B state — Create Induction Profile modal.
+  const [createModalState, setCreateModalState] = useState<CreateModalState>({ mode: "closed" });
 
   const showOnboarding = view !== "offboarding";
   const showOffboarding = view !== "onboarding";
@@ -288,6 +299,7 @@ export default function OnboardingDashboard({
       next.delete(requestId);
       return next;
     });
+    const matchingRequest = requestsForCard.find((r) => r.id === requestId);
     startTransition(async () => {
       const result = await acceptInductionRequest(requestId);
       setRequestActionPending((p) => {
@@ -299,9 +311,32 @@ export default function OnboardingDashboard({
         setRequestActionErrors((e) =>
           new Map(e).set(requestId, result.error ?? "Failed to accept"),
         );
-      } else {
-        router.refresh();
+        return;
       }
+      // Phase B: show the credential screen with the generated link
+      if (result.trainingLink && matchingRequest) {
+        const username =
+          matchingRequest.email.split("@")[0]?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? "";
+        const tempPassword = "eBright@" + String(Math.floor(1000 + Math.random() * 9000));
+        // TODO: real email send — currently just logged to console
+        console.info("[induction] mock email queued (accept):", {
+          to: matchingRequest.email,
+          username,
+          tempPassword,
+          loginLink: result.trainingLink,
+        });
+        setCreateModalState({
+          mode: "credential",
+          data: {
+            candidateName: matchingRequest.fullName,
+            candidateEmail: matchingRequest.email,
+            username,
+            tempPassword,
+            loginLink: result.trainingLink,
+          },
+        });
+      }
+      router.refresh();
     });
   };
 
@@ -415,19 +450,16 @@ export default function OnboardingDashboard({
               Refresh
             </button>
             {showHRLayout && (
-              <Link
-                href="/induction/control-centre"
+              <button
+                type="button"
+                onClick={() => setCreateModalState({ mode: "form" })}
                 className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
               >
                 ＋ New Candidate
-              </Link>
+              </button>
             )}
-            <Link
-              href="/induction/control-centre"
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Control Centre →
-            </Link>
+            {/* "Control Centre →" link removed in Phase D — Control Centre
+                page deleted, all management is on this page now */}
           </div>
         </header>
 
@@ -497,11 +529,11 @@ export default function OnboardingDashboard({
                           : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
                       }`}
                     >
-                      <div className="text-xl">{cat.icon}</div>
-                      <p className={`mt-1 text-xs font-semibold ${active ? cat.textClass : "text-slate-900"}`}>{cat.label}</p>
-                      <div className="mt-1 flex items-center justify-between gap-1 text-[11px]">
+                      {/* Per Phase A spec: no icons on category cards */}
+                      <p className={`text-sm font-semibold ${active ? cat.textClass : "text-slate-900"}`}>{cat.label}</p>
+                      <div className="mt-1.5 flex items-center justify-between gap-1 text-[11px]">
                         <span className="text-slate-500">{counts.total} total</span>
-                        <span className="font-semibold text-emerald-700">{counts.completed} ✓</span>
+                        <span className="font-semibold text-emerald-700">{counts.completed} done</span>
                       </div>
                       <div className="mt-1.5 h-1 rounded-full bg-slate-200 overflow-hidden">
                         <div className={`h-full ${cat.barClass}`} style={{ width: `${pct}%` }} />
@@ -654,9 +686,9 @@ export default function OnboardingDashboard({
                                 </button>
                               ) : (
                                 <Link
-                                  href={`/induction/${p.linkToken}`}
+                                  href={`/induction/onboarding-dashboard/${p.id}`}
                                   className="inline-flex items-center text-xs font-semibold text-blue-600 hover:text-blue-700"
-                                  title="Open candidate's induction page"
+                                  title="Open candidate detail view"
                                 >
                                   View →
                                 </Link>
@@ -685,6 +717,16 @@ export default function OnboardingDashboard({
               setAssigningProfile(null);
               router.refresh();
             }}
+          />
+        )}
+
+        {/* ── Create Induction Profile Modal (Phase B) ── */}
+        {showHRLayout && eligibleEmployees && (
+          <CreateInductionProfileModal
+            state={createModalState}
+            onClose={() => setCreateModalState({ mode: "closed" })}
+            employees={eligibleEmployees}
+            onCreated={() => router.refresh()}
           />
         )}
 
@@ -908,8 +950,11 @@ export default function OnboardingDashboard({
           )}
         </div>
 
+        {/* The workflow-preview swimlane (template tabs + dept dropdown +
+            step cards) is hidden in the HR onboarding view per spec.
+            Still rendered for ?type=offboarding and ?type=both views. */}
         <div className="space-y-6">
-          {showOnboarding && (
+          {showOnboarding && !showHRLayout && (
             <InteractiveWorkflowSection
               kind="Onboarding"
               templateSteps={WORKFLOW_TEMPLATES.Standard}

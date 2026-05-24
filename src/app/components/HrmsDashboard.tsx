@@ -100,16 +100,8 @@ const modules: HrmsModule[] = [
     accentHover: "group-hover:bg-rose-700",
     requiredRoles: MANAGE_INDUCTION_ROLE_TYPES,
   },
-  {
-    id: "induction-control-centre",
-    title: "Induction Control Centre",
-    description: "Review pending requests and active inductions",
-    href: "/induction/control-centre",
-    Icon: UserPlus,
-    accent: "bg-sky-600",
-    accentHover: "group-hover:bg-sky-700",
-    requiredRoles: MANAGE_INDUCTION_ROLE_TYPES,
-  },
+  // Induction Control Centre tile removed in Phase D — induction management
+  // is now done directly from the Onboarding tile (HR onboarding dashboard).
   {
     id: "hr-dashboard",
     title: "HR Dashboard",
