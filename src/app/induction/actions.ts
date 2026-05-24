@@ -3,6 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth/next";
+import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/nextauth";
 import { prisma } from "@/lib/prisma";
 import { uploadToDrive } from "@/lib/drive";
@@ -193,7 +194,7 @@ export async function createInduction(
   const expiresAt = expiryFromNow();
 
   try {
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const profile = await tx.induction_profile.create({
         data: {
           user_id: userId,
@@ -236,7 +237,7 @@ export async function createInduction(
       }),
     );
 
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
 
     return { ok: true, inductionProfileId: created.id, token };
   } catch (e) {
@@ -279,7 +280,7 @@ export async function regenerateInductionToken(
     return { ok: false, error: `Could not regenerate token: ${msg}` };
   }
 
-  revalidatePath("/induction/control-centre");
+  revalidatePath("/induction/onboarding-dashboard");
   return { ok: true, token, expiresAt: expiresAt.toISOString() };
 }
 
@@ -326,7 +327,7 @@ export async function createInductionRequest(
       select: { id: true },
     });
     revalidatePath("/dashboards/hrms");
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
     return { ok: true, requestId: created.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown database error.";
@@ -392,7 +393,7 @@ export async function createInductionRequestForEbrightCandidate(
   });
 
   try {
-    const newUser = await prisma.$transaction(async (tx) => {
+    const newUser = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Ensure unique email — append source_id if the slug collides.
       let email = baseEmail;
       const existing = await tx.users.findUnique({ where: { email } });
@@ -485,7 +486,7 @@ export async function createBulkInductionRequests(
   }
 
   if (created > 0) {
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/induction/hr-dashboard");
     revalidatePath("/induction/hr-dashboard/onboarding-detail");
     revalidatePath("/induction/hr-dashboard/offboarding-detail");
@@ -553,7 +554,7 @@ export async function acceptInductionRequest(
   const templateSteps = WORKFLOW_TEMPLATES[templateName];
 
   try {
-    const profile = await prisma.$transaction(async (tx) => {
+    const profile = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const created = await tx.induction_profile.create({
         data: {
           user_id: request.user_id,
@@ -591,7 +592,7 @@ export async function acceptInductionRequest(
       return created;
     });
 
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/dashboards/hrms");
 
     const baseUrl = process.env.NEXTAUTH_URL ?? "";
@@ -661,7 +662,7 @@ export async function declineInductionRequest(
       data: { status: "declined" },
     });
 
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/dashboards/hrms");
 
@@ -770,7 +771,7 @@ export async function assignCandidateRole(
   });
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       if (existingEmployment) {
         await tx.employment.update({
           where: { employment_id: existingEmployment.employment_id },
@@ -814,7 +815,7 @@ export async function assignCandidateRole(
     );
 
     revalidatePath("/admin/onboarding");
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/dashboards/hrms");
 
@@ -898,7 +899,7 @@ export async function markStepCompleteByToken(
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.induction_step.update({
         where: { id: stepId },
         data: {
@@ -955,7 +956,7 @@ export async function markStepCompleteByToken(
   );
 
   revalidatePath(`/induction/${token}`);
-  revalidatePath("/induction/control-centre");
+  revalidatePath("/induction/onboarding-dashboard");
   return { ok: true };
 }
 
@@ -1063,7 +1064,7 @@ export async function submitStepEvidenceByToken(
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.induction_step.update({
         where: { id: stepId },
         data: {
@@ -1115,7 +1116,7 @@ export async function submitStepEvidenceByToken(
   }
 
   revalidatePath(`/induction/${token}`);
-  revalidatePath("/induction/control-centre");
+  revalidatePath("/induction/onboarding-dashboard");
   return { ok: true, fileId: evidenceFileId };
 }
 
@@ -1308,7 +1309,7 @@ export async function addSubstepTemplate(
       select: { id: true },
     });
     revalidatePath("/induction/onboarding-dashboard");
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
     return { ok: true, id: created.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Database error.";
@@ -1329,7 +1330,7 @@ export async function deleteSubstepTemplate(
   try {
     await prisma.induction_substep_template.delete({ where: { id } });
     revalidatePath("/induction/onboarding-dashboard");
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Database error.";
@@ -1371,7 +1372,7 @@ export async function setInductionDurationDays(
       select: { target_duration_days: true, workflow_template: true },
     });
     const effective = updated.target_duration_days ?? defaultDurationDays(updated.workflow_template);
-    revalidatePath("/induction/control-centre");
+    revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/induction/hr-dashboard");
     return { ok: true, durationDays: effective };

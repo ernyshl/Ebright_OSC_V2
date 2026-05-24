@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   BarChart3,
-  ClipboardList,
   FileText,
   Home,
   LayoutDashboard,
@@ -87,16 +86,9 @@ export function HRMSSidebar({
     {
       label: "Tools",
       items: [
-        ...(canManageInductions
-          ? [
-              {
-                href: "/induction/control-centre",
-                label: "Control Centre",
-                icon: ClipboardList,
-              },
-            ]
-          : []),
-        { href: "#", label: "Dept. Workflows", icon: Workflow, disabled: true },
+        // Control Centre item removed in Phase D — all induction management
+        // is now done from /induction/onboarding-dashboard?type=onboarding
+        { href: "#", label: "Workflow Center", icon: Workflow, disabled: true },
         { href: "#", label: "Settings", icon: Settings, disabled: true },
       ],
     },

@@ -415,19 +415,17 @@ export default function OnboardingDashboard({
               Refresh
             </button>
             {showHRLayout && (
-              <Link
-                href="/induction/control-centre"
-                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+              <button
+                type="button"
+                disabled
+                title="Create Induction Profile modal — coming in Phase B"
+                className="inline-flex items-center gap-1.5 rounded-md bg-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-500 cursor-not-allowed"
               >
                 ＋ New Candidate
-              </Link>
+              </button>
             )}
-            <Link
-              href="/induction/control-centre"
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Control Centre →
-            </Link>
+            {/* "Control Centre →" link removed in Phase D — Control Centre
+                page deleted, all management is on this page now */}
           </div>
         </header>
 
