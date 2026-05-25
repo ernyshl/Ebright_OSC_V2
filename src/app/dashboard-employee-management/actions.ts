@@ -13,13 +13,20 @@ type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 import { STAFF_ROLE_ID } from "@/lib/employeeQueries";
 import { titleCaseName } from "@/lib/text";
 import { WORKFLOW_TEMPLATES, computeStepDueDate, isKnownTemplate } from "@/app/induction/templates";
+import { getRequestBaseUrl } from "@/lib/baseUrl";
 
 export interface OnboardingCredentials {
   candidateName: string;
   candidateEmail: string;
   username: string;
   tempPassword: string;
+  /** Best-effort full URL built from request headers. The client should
+   *  prefer rebuilding from window.location.origin + loginToken when
+   *  rendering the credential overlay — see EmployeeForm. */
   loginLink: string;
+  /** Raw token — client uses this to rebuild loginLink from
+   *  window.location.origin (most reliable source of truth). */
+  loginToken: string;
 }
 
 export interface CreateEmployeeResult {
@@ -254,7 +261,7 @@ export async function createEmployee(_: CreateEmployeeResult | null, formData: F
 
   if (assignOnboarding) {
     revalidatePath("/induction/onboarding-dashboard");
-    const baseUrl = process.env.NEXTAUTH_URL ?? "";
+    const baseUrl = await getRequestBaseUrl();
     const loginLink = `${baseUrl}/induction/${onbToken}`;
     // Real email send is stubbed — credentials logged to server console
     // and shown to HR via the credential overlay in the form.
@@ -276,6 +283,7 @@ export async function createEmployee(_: CreateEmployeeResult | null, formData: F
         username: onbUsername,
         tempPassword: onbTempPassword,
         loginLink,
+        loginToken: onbToken,
       },
     };
   }

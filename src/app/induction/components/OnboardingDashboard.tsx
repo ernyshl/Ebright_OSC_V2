@@ -318,12 +318,20 @@ export default function OnboardingDashboard({
         const username =
           matchingRequest.email.split("@")[0]?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? "";
         const tempPassword = "eBright@" + String(Math.floor(1000 + Math.random() * 9000));
+        // Source of truth: rebuild from the actual browser origin so the
+        // link is reachable even if NEXTAUTH_URL or proxy headers point
+        // at an internal IP. Falls back to the server-built trainingLink
+        // if token isn't present for some reason.
+        const loginLink =
+          result.token
+            ? `${window.location.origin}/induction/${result.token}`
+            : result.trainingLink;
         // TODO: real email send — currently just logged to console
         console.info("[induction] mock email queued (accept):", {
           to: matchingRequest.email,
           username,
           tempPassword,
-          loginLink: result.trainingLink,
+          loginLink,
         });
         setCreateModalState({
           mode: "credential",
@@ -332,7 +340,7 @@ export default function OnboardingDashboard({
             candidateEmail: matchingRequest.email,
             username,
             tempPassword,
-            loginLink: result.trainingLink,
+            loginLink,
           },
         });
       }

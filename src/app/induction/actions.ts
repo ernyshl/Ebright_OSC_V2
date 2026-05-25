@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/nextauth";
 import { prisma } from "@/lib/prisma";
+import { getRequestBaseUrl } from "@/lib/baseUrl";
 
 // Transaction client type derived from the prisma singleton — avoids
 // importing the Prisma namespace, which some IDE TS servers fail to
@@ -600,7 +601,7 @@ export async function acceptInductionRequest(
     revalidatePath("/induction/onboarding-dashboard");
     revalidatePath("/dashboards/hrms");
 
-    const baseUrl = process.env.NEXTAUTH_URL ?? "";
+    const baseUrl = await getRequestBaseUrl();
     const trainingLink = `${baseUrl}/induction/${token}`;
 
     console.info(

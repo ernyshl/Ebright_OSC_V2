@@ -207,7 +207,17 @@ export default function EmployeeForm({
       >
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
           <CredentialScreen
-            data={state.credentials}
+            data={{
+              ...state.credentials,
+              // Source of truth: rebuild from the actual origin HR is on,
+              // so the link is always reachable regardless of whether
+              // NEXTAUTH_URL / proxy headers point at an internal IP on
+              // the server.
+              loginLink:
+                typeof window !== "undefined" && state.credentials.loginToken
+                  ? `${window.location.origin}/induction/${state.credentials.loginToken}`
+                  : state.credentials.loginLink,
+            }}
             onDone={() => {
               router.push("/dashboard-employee-management");
               router.refresh();
