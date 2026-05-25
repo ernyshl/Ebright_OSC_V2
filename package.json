@@ -28,6 +28,7 @@
     "react": "19.2.4",
     "react-date-range": "^2.0.1",
     "react-dom": "19.2.4",
+    "resend": "^6.12.3",
     "urllib": "^4.9.0"
   },
   "devDependencies": {

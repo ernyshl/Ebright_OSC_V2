@@ -227,6 +227,21 @@ model induction_profile {
   // "expected end" calculation. NULL = fall back to the template default
   // (Coach Part-timer ≈ 21, all other paths ≈ 3).
   target_duration_days Int?
+  // Date on which the onboarding "welcome + credentials" email should go
+  // out to the candidate. Defaults to start_date in the Add Employee
+  // form but HR can pick an earlier/later date. NULL = no email scheduled
+  // (older rows or HR opted out).
+  send_email_on     DateTime? @db.Date
+  // Stamped by the cron job (/api/jobs/send-onboarding-emails) the first
+  // time it successfully dispatches the email. Used as the idempotency
+  // guard so the cron never sends twice.
+  email_sent_at     DateTime? @db.Timestamptz(6)
+  // Plaintext temp password held only between save-employee time and
+  // when the cron job dispatches the welcome email — the same value
+  // HR sees in the credential overlay. Cleared (set to NULL) by the
+  // cron the moment it sends, so the plaintext lives at most until
+  // send_email_on + a cron tick. NULL once email_sent_at is set.
+  pending_email_password String? @db.VarChar(255)
   created_by        Int
   completed_at      DateTime? @db.Timestamptz(6)
   created_at        DateTime  @default(now()) @db.Timestamptz(6)

@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 // resolve from @prisma/client v7's package exports even though tsc
 // builds clean.
 type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+import bcrypt from "bcryptjs";
 import { STAFF_ROLE_ID } from "@/lib/employeeQueries";
 import { titleCaseName } from "@/lib/text";
 import { WORKFLOW_TEMPLATES, computeStepDueDate, isKnownTemplate } from "@/app/induction/templates";
@@ -129,9 +130,11 @@ export async function createEmployee(_: CreateEmployeeResult | null, formData: F
   const assignOnboarding = formData.get("assign_to_onboarding") === "on";
   const onbTemplate = s(formData, "workflow_template");
   const onbStartDateRaw = s(formData, "onboarding_start_date");
+  const onbSendEmailOnRaw = s(formData, "send_email_on");
   const onbBuddyIdRaw = s(formData, "buddy_user_id");
 
   let onbStartDate: Date | null = null;
+  let onbSendEmailOn: Date | null = null;
   let onbBuddyUserId: number | null = null;
   if (assignOnboarding) {
     if (!isKnownTemplate(onbTemplate)) {
@@ -140,6 +143,12 @@ export async function createEmployee(_: CreateEmployeeResult | null, formData: F
     onbStartDate = dateOrNull(onbStartDateRaw);
     if (!onbStartDate) {
       return { ok: false, error: "Onboarding start date is required when assigning onboarding." };
+    }
+    // Default the send date to the start date if HR didn't pick one.
+    // The cron job sends on send_email_on (or earlier if it catches up).
+    onbSendEmailOn = onbSendEmailOnRaw ? dateOrNull(onbSendEmailOnRaw) : onbStartDate;
+    if (!onbSendEmailOn) {
+      return { ok: false, error: "Email send date is invalid." };
     }
     if (onbBuddyIdRaw) {
       const parsed = Number.parseInt(onbBuddyIdRaw, 10);
@@ -160,13 +169,20 @@ export async function createEmployee(_: CreateEmployeeResult | null, formData: F
   const onbExpiresAt = expiryFromNow();
   const onbUsername = generateOnboardingUsername(email);
   const onbTempPassword = generateOnboardingTempPassword();
+  // Hash outside the transaction (bcrypt is CPU-heavy, no need to hold
+  // the tx open while it runs). Only used when assigning onboarding —
+  // without it, the candidate could never log in with the temp password
+  // we show HR, since the auth credentials provider rejects null passwords.
+  const onbHashedPassword = assignOnboarding
+    ? await bcrypt.hash(onbTempPassword, 10)
+    : null;
 
   try {
     await prisma.$transaction(async (tx: TxClient) => {
       const user = await tx.users.create({
         data: {
           email,
-          password: null,
+          password: onbHashedPassword,
           role_id: STAFF_ROLE_ID,
           status: statusField,
         },
@@ -236,6 +252,11 @@ export async function createEmployee(_: CreateEmployeeResult | null, formData: F
             link_expires_at: onbExpiresAt,
             status: "Sent",
             start_date: onbStartDate,
+            send_email_on: onbSendEmailOn,
+            // Plaintext temp password is held here so the cron job can
+            // include it in the welcome email. Cleared as soon as the
+            // email is dispatched (see /api/jobs/send-onboarding-emails).
+            pending_email_password: onbTempPassword,
             created_by: user.user_id,
           },
           select: { id: true },
@@ -262,19 +283,15 @@ export async function createEmployee(_: CreateEmployeeResult | null, formData: F
   if (assignOnboarding) {
     revalidatePath("/induction/onboarding-dashboard");
     const baseUrl = await getRequestBaseUrl();
-    const loginLink = `${baseUrl}/induction/${onbToken}`;
-    // Real email send is stubbed — credentials logged to server console
-    // and shown to HR via the credential overlay in the form.
-    console.info(
-      "[onboarding] mock email queued for new candidate:",
-      JSON.stringify({
-        to: email,
-        recipient: titleCaseName(fullName),
-        username: onbUsername,
-        tempPassword: onbTempPassword,
-        loginLink,
-      }),
-    );
+    // Login link points at the standard /login page (not the token route).
+    // Candidates log in with username + temp password; the token URL is
+    // shown to HR as a backup direct-access link.
+    const loginLink = `${baseUrl}/login`;
+    // Real send is delegated to the cron route
+    // (/api/jobs/send-onboarding-emails) which fires daily and dispatches
+    // any induction_profile rows where send_email_on <= today AND
+    // email_sent_at IS NULL. HR sees the credentials in the overlay
+    // straight away so they can copy/paste them out-of-band if needed.
     return {
       ok: true,
       credentials: {
