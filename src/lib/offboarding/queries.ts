@@ -1,20 +1,22 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import {
+  type OffboardingCaseType,
+  type OffboardingStatus,
+  type OffboardingStage,
+} from "@/lib/offboarding/stages";
+
+// Re-export the client-safe types so existing callers that imported
+// them from queries.ts keep working without changes. The runtime
+// helpers (stageIndex, isStageBefore, STAGE_ORDER) MUST be imported
+// directly from "@/lib/offboarding/stages" by client components to
+// avoid pulling this server-only file into the browser bundle.
+export type { OffboardingCaseType, OffboardingStatus, OffboardingStage };
 
 // ============================================================
 // Offboarding case queries — server-side fetchers for the HR
 // dashboard list view + case detail page (read-only in PR1).
 // ============================================================
-
-export type OffboardingCaseType = "Resign" | "ContractEnded";
-export type OffboardingStatus = "Pending" | "InProgress" | "Completed";
-export type OffboardingStage =
-  | "Trigger"
-  | "HRReview"
-  | "ExitInterview"
-  | "Checklist"
-  | "SignOff"
-  | "Done";
 
 export interface OffboardingCaseRow {
   id: number;
@@ -105,23 +107,6 @@ export interface OffboardingCaseDetail {
   completedAt: string | null;
   checklist: OffboardingChecklistRow[];
   auditLog: OffboardingAuditRow[];
-}
-
-const STAGE_ORDER: OffboardingStage[] = [
-  "Trigger",
-  "HRReview",
-  "ExitInterview",
-  "Checklist",
-  "SignOff",
-  "Done",
-];
-
-export function stageIndex(stage: OffboardingStage): number {
-  return STAGE_ORDER.indexOf(stage);
-}
-
-export function isStageBefore(a: OffboardingStage, b: OffboardingStage): boolean {
-  return stageIndex(a) < stageIndex(b);
 }
 
 function daysBetween(target: Date, from: Date): number {

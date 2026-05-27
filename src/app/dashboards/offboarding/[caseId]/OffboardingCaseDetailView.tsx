@@ -9,11 +9,11 @@ import {
   CheckCircle2,
   Clock,
 } from "lucide-react";
-import type {
-  OffboardingCaseDetail,
-  OffboardingStage,
-} from "@/lib/offboarding/queries";
-import { stageIndex } from "@/lib/offboarding/queries";
+import type { OffboardingCaseDetail } from "@/lib/offboarding/queries";
+import {
+  type OffboardingStage,
+  stageIndex,
+} from "@/lib/offboarding/stages";
 
 interface Props {
   detail: OffboardingCaseDetail;
