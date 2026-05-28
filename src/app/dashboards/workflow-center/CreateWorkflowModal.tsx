@@ -14,11 +14,10 @@ const APPLIES_TO_OPTIONS = [
   "Full-timer (HQ)",
 ];
 
-const TRIGGER_OPTIONS = [
-  { value: "after-day-3", label: "After Day 3 Induction Completed" },
-  { value: "after-branch", label: "After Branch Onboarding Completed" },
-  { value: "manual", label: "Manual assignment by HR" },
-];
+// Per spec: the trigger is no longer chosen manually — the Category field
+// determines the trigger behavior. The schema still has a non-null `trigger`
+// column, so the server action defaults it to "after-day-3" when the modal
+// doesn't send one. Outside this modal's scope.
 
 interface DepartmentOption {
   id: number;
@@ -55,7 +54,6 @@ export function CreateWorkflowModal({
   const [categoryMode, setCategoryMode] = useState<"preset" | "custom">("preset");
   const [categoryPreset, setCategoryPreset] = useState<string>("Onboarding");
   const [categoryCustom, setCategoryCustom] = useState("");
-  const [trigger, setTrigger] = useState("after-day-3");
   const [appliesTo, setAppliesTo] = useState<string[]>([]);
 
   if (!open) return null;
@@ -63,6 +61,18 @@ export function CreateWorkflowModal({
   const mergedKnownCategories = Array.from(
     new Set([...DEFAULT_CATEGORIES, ...knownCategories]),
   );
+
+  // Effective category drives the helper text + whether Applies To is visible.
+  const effectiveCategory =
+    categoryMode === "custom" ? categoryCustom.trim() : categoryPreset;
+  const isOnboarding = effectiveCategory === "Onboarding";
+  const isOffboarding = effectiveCategory === "Offboarding";
+
+  const categoryHelper = isOnboarding
+    ? "This workflow auto-assigns to candidates after Day 3 induction is completed, based on their department."
+    : isOffboarding
+      ? "This workflow activates when an offboarding case reaches the final sign-off stage."
+      : "This workflow must be manually assigned by HR or the department head.";
 
   const handleSubmit = (publishNow: boolean) => {
     setError(null);
@@ -75,10 +85,14 @@ export function CreateWorkflowModal({
       setError("Department is required.");
       return;
     }
-    const finalCategory =
-      categoryMode === "custom" ? categoryCustom.trim() : categoryPreset;
+    const finalCategory = effectiveCategory;
     if (!finalCategory) {
       setError("Category is required.");
+      return;
+    }
+    // Applies To is only relevant + required for Onboarding workflows.
+    if (isOnboarding && appliesTo.length === 0) {
+      setError("Pick at least one employee type for an Onboarding workflow.");
       return;
     }
 
@@ -86,8 +100,11 @@ export function CreateWorkflowModal({
     fd.set("name", trimmedName);
     fd.set("department_id", String(departmentId));
     fd.set("category", finalCategory);
-    fd.set("trigger", trigger);
-    for (const t of appliesTo) fd.append("applies_to", t);
+    // Only attach applies_to when it's an Onboarding workflow — other
+    // categories don't use it.
+    if (isOnboarding) {
+      for (const t of appliesTo) fd.append("applies_to", t);
+    }
     if (publishNow) fd.set("publish", "1");
 
     startTransition(async () => {
@@ -169,7 +186,7 @@ export function CreateWorkflowModal({
             </select>
           </Field>
 
-          <Field label="Category" required hint="Drives auto-assignment after Day 3 (Onboarding) or offboarding linkage.">
+          <Field label="Category" required hint={categoryHelper}>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <label className="inline-flex items-center gap-1.5 text-xs text-slate-700">
@@ -213,43 +230,35 @@ export function CreateWorkflowModal({
             </div>
           </Field>
 
-          <Field label="Trigger">
-            <select
-              value={trigger}
-              onChange={(e) => setTrigger(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              {TRIGGER_OPTIONS.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Applies To" hint="Which employee types this workflow applies to.">
-            <div className="flex flex-wrap gap-2">
-              {APPLIES_TO_OPTIONS.map((t) => {
-                const checked = appliesTo.includes(t);
-                return (
-                  <label key={t} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer ${
-                    checked
-                      ? "bg-blue-50 border-blue-300 text-blue-700"
-                      : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        if (e.target.checked) setAppliesTo((prev) => [...prev, t]);
-                        else setAppliesTo((prev) => prev.filter((x) => x !== t));
-                      }}
-                      className="sr-only"
-                    />
-                    {t}
-                  </label>
-                );
-              })}
-            </div>
-          </Field>
+          {/* Applies To — only relevant for Onboarding workflows. Hidden
+              entirely for Offboarding / Other / custom categories. */}
+          {isOnboarding && (
+            <Field label="Applies To" required hint="Which employee types this workflow applies to.">
+              <div className="flex flex-wrap gap-2">
+                {APPLIES_TO_OPTIONS.map((t) => {
+                  const checked = appliesTo.includes(t);
+                  return (
+                    <label key={t} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer ${
+                      checked
+                        ? "bg-blue-50 border-blue-300 text-blue-700"
+                        : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) setAppliesTo((prev) => [...prev, t]);
+                          else setAppliesTo((prev) => prev.filter((x) => x !== t));
+                        }}
+                        className="sr-only"
+                      />
+                      {t}
+                    </label>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
 
           {error && (
             <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
