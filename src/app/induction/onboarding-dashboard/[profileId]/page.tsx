@@ -8,6 +8,10 @@ import { listBranches } from "@/lib/employeeQueries";
 import { listDepartments } from "@/app/induction/queries";
 import { CandidateDetailView } from "./CandidateDetailView";
 import type { PendingInductionRow } from "@/app/induction/queries";
+import {
+  getActiveAssignmentForUser,
+  listAssignableOnboardingWorkflowsForUser,
+} from "@/lib/workflow/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -106,11 +110,17 @@ export default async function CandidateDetailPage({ params }: PageProps) {
   );
 
   // For the Assign Role modal dropdowns
-  const [branches, departments, activeUsers] = await Promise.all([
-    listBranches(),
-    listDepartments(),
-    fetchActiveUsersForReportsTo(),
-  ]);
+  // Plus: any active workflow assignment for this candidate, and the
+  // list of workflows HR/HOD can assign right now (active + Onboarding
+  // category + matching department).
+  const [branches, departments, activeUsers, workflowAssignment, assignableWorkflows] =
+    await Promise.all([
+      listBranches(),
+      listDepartments(),
+      fetchActiveUsersForReportsTo(),
+      getActiveAssignmentForUser(dbProfile.user_id),
+      listAssignableOnboardingWorkflowsForUser(dbProfile.user_id),
+    ]);
 
   const userEmail = session.user.email;
   const userRole = actor?.role?.role_type ?? "";
@@ -124,6 +134,11 @@ export default async function CandidateDetailPage({ params }: PageProps) {
         branches={branches}
         departments={departments}
         activeUsers={activeUsers}
+        workflowAssignment={workflowAssignment}
+        assignableWorkflows={assignableWorkflows}
+        canAssignWorkflow={["superadmin", "hr", "od", "hod"].includes(
+          (actor?.role?.role_type ?? "").toLowerCase(),
+        )}
       />
     </AppShell>
   );

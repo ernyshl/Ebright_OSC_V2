@@ -62,11 +62,12 @@ model branch {
 }
 
 model department {
-  department_id     Int                          @id @default(autoincrement())
-  department_name   String                       @db.VarChar(100)
-  department_code   String                       @unique @db.VarChar(10)
-  employment        employment[]
-  substep_templates induction_substep_template[]
+  department_id      Int                          @id @default(autoincrement())
+  department_name    String                       @db.VarChar(100)
+  department_code    String                       @unique @db.VarChar(10)
+  employment         employment[]
+  substep_templates  induction_substep_template[]
+  workflow_templates workflow_template[]
 }
 
 model devices {
@@ -194,6 +195,10 @@ model users {
   offboarding_case_finance_processed             offboarding_case[]           @relation("OffboardingCaseFinanceProcessor")
   offboarding_checklist_completed                offboarding_checklist_item[]
   offboarding_audit_actor                        offboarding_audit_log[]
+  workflow_templates_created                     workflow_template[]          @relation("WorkflowTemplateCreatedBy")
+  workflow_assignments_user                      workflow_assignment[]        @relation("WorkflowAssignmentUser")
+  workflow_assignments_by                        workflow_assignment[]        @relation("WorkflowAssignmentAssignedBy")
+  workflow_assignment_steps_completed            workflow_assignment_step[]
   role                                           role                         @relation(fields: [role_id], references: [role_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_users_role")
 }
 
@@ -599,4 +604,121 @@ model offboarding_audit_log {
 
   @@index([case_id], map: "idx_offb_audit_case")
   @@index([created_at], map: "idx_offb_audit_at")
+}
+
+// ============================================================
+// WORKFLOW CENTER — DB-backed (replaces lib/workflow-mock-data.ts)
+// Added 2026-05-28 for Workflow Center PR1.
+//
+// Design:
+//   - workflow_template          → the workflow definition
+//   - workflow_step              → steps belonging to a workflow
+//   - workflow_assignment        → assignment of a workflow to a candidate
+//   - workflow_assignment_step   → per-step completion for an assignment
+//
+// HOD scoping: workflow_template.department_id determines who can see
+// and edit it. Superadmin + admin see all; HOD sees only their dept.
+//
+// Category drives auto-assignment (PR2): "Onboarding" workflows are
+// auto-assigned to candidates after Day 3 if their employee type
+// supports it. "Offboarding" workflows attach to offboarding cases.
+// "Other" / custom categories live in the Center but never auto-trigger.
+// ============================================================
+
+model workflow_template {
+  id            Int       @id @default(autoincrement())
+  name          String    @db.VarChar(200)
+  department_id Int
+  // Category drives auto-assignment behavior.
+  //   "Onboarding"  → auto-assigned after Day 3 (PR2)
+  //   "Offboarding" → linked to offboarding cases (PR2)
+  //   "Other" or custom → lives in Center, no auto-trigger
+  category      String    @db.VarChar(50)
+  status        String    @default("draft") @db.VarChar(20)
+  // "draft" | "active" | "archived"
+  trigger       String    @default("after-day-3") @db.VarChar(40)
+  // "after-day-3" | "after-branch" | "manual"
+  applies_to    Json
+  // Array of employee type labels: ["Regular Intern", "Coach (Part-timer)", ...]
+  created_by_id Int
+  published_at  DateTime? @db.Timestamptz(6)
+  archived_at   DateTime? @db.Timestamptz(6)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(6)
+
+  department  department            @relation(fields: [department_id], references: [department_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_workflow_template_department")
+  created_by  users                 @relation("WorkflowTemplateCreatedBy", fields: [created_by_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_workflow_template_created_by")
+  steps       workflow_step[]
+  assignments workflow_assignment[]
+
+  @@index([department_id], map: "idx_workflow_template_department")
+  @@index([category], map: "idx_workflow_template_category")
+  @@index([status], map: "idx_workflow_template_status")
+}
+
+model workflow_step {
+  id                   Int      @id @default(autoincrement())
+  workflow_template_id Int
+  step_number          Int
+  title                String   @db.VarChar(200)
+  description          String?
+  // Who is responsible:
+  //   "Candidate" | "HOD" | "HR" | "Buddy" | "System"
+  actor_role           String   @db.VarChar(50)
+  // Step type for display:
+  //   "Task" | "Submission" | "Meeting" | "Sign-off" | "Reading"
+  type                 String   @db.VarChar(30)
+  due_days_after_start Int      @default(0)
+  required             Boolean  @default(true)
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime @updatedAt @db.Timestamptz(6)
+
+  workflow_template workflow_template          @relation(fields: [workflow_template_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_workflow_step_template")
+  assignment_steps  workflow_assignment_step[]
+
+  @@unique([workflow_template_id, step_number], map: "uq_workflow_step_template_number")
+  @@index([workflow_template_id], map: "idx_workflow_step_template")
+}
+
+model workflow_assignment {
+  id                   Int       @id @default(autoincrement())
+  workflow_template_id Int
+  user_id              Int
+  assigned_by_id       Int
+  status               String    @default("InProgress") @db.VarChar(20)
+  // "InProgress" | "Completed" | "Cancelled"
+  assigned_at          DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at         DateTime? @db.Timestamptz(6)
+  notes                String?
+
+  workflow_template workflow_template          @relation(fields: [workflow_template_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_workflow_assignment_template")
+  user              users                      @relation("WorkflowAssignmentUser", fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_workflow_assignment_user")
+  assigned_by       users                      @relation("WorkflowAssignmentAssignedBy", fields: [assigned_by_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_workflow_assignment_assigned_by")
+  assignment_steps  workflow_assignment_step[]
+
+  // One active assignment per (user, workflow) — re-assigning would
+  // require completing or cancelling the existing row first.
+  @@unique([user_id, workflow_template_id], map: "uq_workflow_assignment_user_template")
+  @@index([user_id], map: "idx_workflow_assignment_user")
+  @@index([workflow_template_id], map: "idx_workflow_assignment_template")
+  @@index([status], map: "idx_workflow_assignment_status")
+}
+
+model workflow_assignment_step {
+  id                     Int       @id @default(autoincrement())
+  workflow_assignment_id Int
+  workflow_step_id       Int
+  status                 String    @default("Pending") @db.VarChar(20)
+  // "Pending" | "Done"
+  completed_at           DateTime? @db.Timestamptz(6)
+  completed_by_id        Int?
+  notes                  String?
+
+  workflow_assignment workflow_assignment @relation(fields: [workflow_assignment_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_workflow_assignment_step_assignment")
+  workflow_step       workflow_step       @relation(fields: [workflow_step_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_workflow_assignment_step_step")
+  completed_by        users?              @relation(fields: [completed_by_id], references: [user_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_workflow_assignment_step_completed_by")
+
+  @@unique([workflow_assignment_id, workflow_step_id], map: "uq_workflow_assignment_step_unique")
+  @@index([workflow_assignment_id], map: "idx_workflow_assignment_step_assignment")
+  @@index([workflow_step_id], map: "idx_workflow_assignment_step_step")
 }

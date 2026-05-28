@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ChevronRight, Home } from "lucide-react";
 import { InductionTrainingEmbed } from "@/app/induction/components/InductionTrainingEmbed";
-import { DepartmentWorkflowPlaceholder } from "@/app/induction/components/DepartmentWorkflowPlaceholder";
 import { BranchOnboardingSection } from "@/app/induction/components/BranchOnboardingSection";
 import { CompletionBanner } from "@/app/induction/components/CompletionBanner";
 import { AssignRoleModal, type ActiveUserOption } from "@/app/induction/components/AssignRoleModal";
@@ -22,6 +21,14 @@ import type {
   DepartmentOption,
 } from "@/app/induction/queries";
 import type { BranchOpt } from "@/lib/employeeQueries";
+import type { AssignmentForCandidate } from "@/lib/workflow/queries";
+import { assignWorkflowToCandidate } from "@/app/dashboards/workflow-center/actions";
+
+interface AssignableWorkflowOption {
+  id: number;
+  name: string;
+  category: string;
+}
 
 interface Props {
   profile: PendingInductionRow;
@@ -32,6 +39,12 @@ interface Props {
   branches: BranchOpt[];
   departments: DepartmentOption[];
   activeUsers: ActiveUserOption[];
+  /** Candidate's currently-active workflow assignment (if any). */
+  workflowAssignment: AssignmentForCandidate | null;
+  /** Active Onboarding-category workflows matching the candidate's department. */
+  assignableWorkflows: AssignableWorkflowOption[];
+  /** Whether the viewer can assign a workflow (HR/HOD/superadmin). */
+  canAssignWorkflow: boolean;
 }
 
 function initialsFromName(name: string): string {
@@ -65,6 +78,9 @@ export function CandidateDetailView({
   branches,
   departments,
   activeUsers,
+  workflowAssignment,
+  assignableWorkflows,
+  canAssignWorkflow,
 }: Props) {
   const router = useRouter();
   const [activeDay, setActiveDay] = useState<1 | 2 | 3>(1);
@@ -277,7 +293,12 @@ export function CandidateDetailView({
         {/* ── DEPARTMENT WORKFLOW (conditional) ── */}
         {type.hasDepartmentWorkflow && day3CandComplete && (
           <div className="mb-5">
-            <DepartmentWorkflowPlaceholder />
+            <DepartmentWorkflowSection
+              userId={profile.userId}
+              workflowAssignment={workflowAssignment}
+              assignableWorkflows={assignableWorkflows}
+              canAssignWorkflow={canAssignWorkflow}
+            />
           </div>
         )}
 
@@ -301,7 +322,6 @@ export function CandidateDetailView({
 }
 
 function DayTab({
-  day,
   label,
   active,
   stats,
@@ -373,5 +393,158 @@ function ReadOnlyTaskItem({ task, ticked }: { task: SpecTask; ticked: boolean })
         </div>
       </div>
     </li>
+  );
+}
+
+// ─── DepartmentWorkflowSection (HR view of the candidate's assigned workflow) ───
+//
+// Three states:
+//   1. workflowAssignment present → show the workflow steps + per-step status
+//   2. no assignment, canAssignWorkflow + assignableWorkflows.length > 0 →
+//      show an "Assign Workflow" picker so HR/HOD can attach one manually
+//   3. no assignment, nothing to assign → placeholder text per spec
+function DepartmentWorkflowSection({
+  userId,
+  workflowAssignment,
+  assignableWorkflows,
+  canAssignWorkflow,
+}: {
+  userId: number;
+  workflowAssignment: AssignmentForCandidate | null;
+  assignableWorkflows: AssignableWorkflowOption[];
+  canAssignWorkflow: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [selectedId, setSelectedId] = useState<number | null>(
+    assignableWorkflows[0]?.id ?? null,
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  if (workflowAssignment) {
+    const done = workflowAssignment.steps.filter((s) => s.status === "Done").length;
+    const total = workflowAssignment.steps.length;
+    return (
+      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <header className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900">
+              Department Workflow
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {workflowAssignment.workflowName} · {workflowAssignment.departmentName}
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-slate-700 tabular-nums">
+            {done}/{total} done
+          </span>
+        </header>
+        {workflowAssignment.steps.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-slate-500 italic">
+            This workflow has no steps yet.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-200">
+            {workflowAssignment.steps.map((s) => {
+              const isDone = s.status === "Done";
+              const isCandidateActor = s.actorRole === "Candidate";
+              return (
+                <li key={s.id} className="px-5 py-3 flex items-start gap-3">
+                  <div
+                    className={`w-5 h-5 mt-0.5 rounded border-2 shrink-0 flex items-center justify-center ${
+                      isDone
+                        ? "bg-emerald-600 border-emerald-600 text-white"
+                        : "bg-white border-slate-300"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {isDone && <span className="text-[11px] font-bold leading-none">✓</span>}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm ${isDone ? "text-slate-500 line-through" : "text-slate-700"}`}>
+                      {s.title}
+                    </p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-slate-700 text-white">
+                        {s.actorRole}
+                      </span>
+                      {!isDone && !isCandidateActor && (
+                        <span className="text-[11px] text-amber-700 font-semibold">
+                          ⏳ Awaiting {s.actorRole}
+                        </span>
+                      )}
+                      {isDone && s.completedByName && (
+                        <span className="text-[11px] text-slate-500">by {s.completedByName}</span>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    );
+  }
+
+  // No assignment yet. Two sub-states.
+  if (!canAssignWorkflow || assignableWorkflows.length === 0) {
+    return (
+      <section className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-8 text-center">
+        <p className="text-3xl mb-2" aria-hidden="true">⚙️</p>
+        <h2 className="text-base font-semibold text-slate-700">Department Workflow</h2>
+        <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+          Your department head has not published a workflow yet. Check back soon.
+        </p>
+      </section>
+    );
+  }
+
+  // Can assign — render picker.
+  const handleAssign = () => {
+    if (selectedId === null) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await assignWorkflowToCandidate(selectedId, userId);
+      if (!result.ok) {
+        setError(result.error ?? "Could not assign.");
+        return;
+      }
+      router.refresh();
+    });
+  };
+
+  return (
+    <section className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-6">
+      <div className="text-center mb-4">
+        <p className="text-2xl mb-1" aria-hidden="true">⚙️</p>
+        <h2 className="text-base font-semibold text-slate-700">Department Workflow</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          No workflow assigned yet. Pick one to assign to this candidate.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <select
+          value={selectedId ?? ""}
+          onChange={(e) => setSelectedId(Number(e.target.value))}
+          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+        >
+          {assignableWorkflows.map((w) => (
+            <option key={w.id} value={w.id}>{w.name}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={handleAssign}
+          disabled={pending || selectedId === null}
+          className="rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+        >
+          {pending ? "Assigning…" : "Assign Workflow"}
+        </button>
+      </div>
+      {error && (
+        <p className="mt-3 text-xs text-rose-700 text-center">{error}</p>
+      )}
+    </section>
   );
 }
