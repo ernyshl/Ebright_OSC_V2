@@ -9,6 +9,7 @@ import {
   getInductionByToken,
   listAllSubstepTemplates,
 } from "@/app/induction/queries";
+import { getActiveAssignmentForUser } from "@/lib/workflow/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -77,11 +78,18 @@ export default async function PersonalInductionPage({ params }: PageProps) {
   // Training. Filtered inside the view by the inductee's department.
   const substepTemplates = await listAllSubstepTemplates();
 
+  // Workflow Center PR1: surface the candidate's assigned department
+  // workflow (if any). Auto-assignment after Day 3 lands in PR2; for
+  // now this is populated only via manual assignment from the HR
+  // candidate detail page.
+  const workflowAssignment = await getActiveAssignmentForUser(result.profile.userId);
+
   return (
     <PersonalInductionView
       profile={result.profile}
       canMarkComplete={canMarkComplete}
       substepTemplates={substepTemplates}
+      workflowAssignment={workflowAssignment}
     />
   );
 }
