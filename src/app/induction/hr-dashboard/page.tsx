@@ -6,10 +6,8 @@ import { authOptions } from "@/lib/nextauth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/app/components/AppShell";
 import { canManageInductions } from "@/app/induction/roles";
-import { OnboardingCard } from "@/app/induction/components/OnboardingCard";
-import { OffboardingCard } from "@/app/induction/components/OffboardingCard";
-import { MCCard } from "@/app/induction/components/MCCard";
-import { AnnualLeaveCard } from "@/app/induction/components/AnnualLeaveCard";
+import { LifecycleCard } from "@/app/induction/components/LifecycleCard";
+import { LeaveCard } from "@/app/induction/components/LeaveCard";
 import {
   shouldRunSync,
   syncAllFromEbrightLeads,
@@ -123,18 +121,20 @@ export default async function HrDashboardPage() {
             </header>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <OnboardingCard
+              <LifecycleCard
+                variant="onboarding"
                 total={onboardingProfiles.length}
                 windowLabel="Active induction pipeline"
                 previewItems={onboardingPreview}
               />
-              <OffboardingCard
+              <LifecycleCard
+                variant="offboarding"
                 total={offboardingCases.length}
                 windowLabel="Active offboarding cases"
                 previewItems={offboardingPreview}
               />
-              <MCCard rows={mcLeaves} />
-              <AnnualLeaveCard rows={annualLeaves} />
+              <LeaveCard variant="mc" rows={mcLeaves} />
+              <LeaveCard variant="annual-leave" rows={annualLeaves} />
             </div>
           </div>
         </div>
