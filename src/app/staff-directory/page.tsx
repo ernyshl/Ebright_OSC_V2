@@ -29,8 +29,9 @@ export default async function StaffDirectoryPage() {
     // Pull both active and inactive employments — chart/card filter to active client-side,
     // timeline view needs inactive employments to render "Left {year}" events.
     prisma.employment.findMany({
+      // role_id 6 = staff (the bulk of employees); 2 = ceo, 4 = branch.
       where: {
-        users: { role_id: { in: [2, 4] } },
+        users: { role_id: { in: [2, 4, 6] } },
       },
       select: {
         employment_id: true,

@@ -54,18 +54,18 @@ const dashboards: DashboardCard[] = [
     icon: "📰",
     color: "bg-yellow-500",
     items: [
-      { name: "Content Manager", href: "#", icon: "✏️" },
-      { name: "Media", href: "#", icon: "🖼️" },
+      { name: "Lead", href: "/crm/lead", icon: "📞" },
+      { name: "Ticket", href: "/crm/ticket", icon: "🎫" },
     ],
   },
   {
     id: "sms",
     title: "SMS",
-    icon: "💬",
+    icon: "🧑‍🎓",
     color: "bg-indigo-500",
     items: [
-      { name: "Messages", href: "#", icon: "💌" },
-      { name: "Templates", href: "#", icon: "📧" },
+      { name: "Students", href: "#", icon: "🧑‍🎓" },
+      { name: "Enrollment", href: "#", icon: "📝" },
     ],
   },
   {
@@ -116,7 +116,7 @@ export default function DashboardHome({ userRole }: { userRole?: string; userEma
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {dashboards.map((dashboard) => {
             const isDisabled = isLocked(dashboard.id);
-            const targetHref = dashboard.id === "academy" ? "/academy" : dashboard.id === "sms" ? "/sms" : `/dashboards/${dashboard.id}`;
+            const targetHref = dashboard.id === "academy" ? "/academy" : `/dashboards/${dashboard.id}`;
             const href = isDisabled ? "#" : targetHref;
 
             return (

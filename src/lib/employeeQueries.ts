@@ -87,12 +87,11 @@ export async function listEmployees(filters: ListFilters = {}): Promise<Employee
   if (filters.role) employmentWhere.position = filters.role;
   if (filters.status) employmentWhere.status = filters.status;
 
-  // Same source as the "Total Staff" count on the dashboard
-  // (prisma.users.count({ where: { status: "active" } })) so the list and the
-  // box stay aligned. Previously this was restricted to role_id IN [2,4],
-  // which collapsed the list down to a handful of accounts.
+  // Staff only (role_id 6) — the workforce, excluding admin/management
+  // accounts (superadmin, ceo, department, branch, regional manager).
   const whereUser: Record<string, unknown> = {
     status: "active",
+    role_id: STAFF_ROLE_ID,
   };
 
   if (Object.keys(employmentWhere).length > 0) {
